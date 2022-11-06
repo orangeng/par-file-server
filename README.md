@@ -18,7 +18,7 @@ We wanted to do this as we were inspired by long-time protocols such as FTP and 
 
 ## Technical Overview
 
-###Server side program###:
+### Server side program:
 - Minimal-interaction CLI tool that does everything by itself, each task will be handled by a worker thread
 - Tasks to implement:
 1. Listening for incoming TCP connections from clients
@@ -27,7 +27,7 @@ We wanted to do this as we were inspired by long-time protocols such as FTP and 
 3. Authentication, such as client logins
 4. Serving up / Retrieving file
 
-###Client side program - Commands to implement###:
+### Client side program - Commands to implement:
 - *connect* - Establish a TCP connection to the server
 - *login* - A simple login system 
 - *mkdir* - Make a directory
@@ -38,13 +38,13 @@ We wanted to do this as we were inspired by long-time protocols such as FTP and 
 
 ## Timeline
 
-###Checkpoint 1:###
+### Checkpoint 1:
 - Complete design of protocol
 - Complete login and authentication features
 - Complete establishment of TCP stream between server-client 
 - Complete concurrent connection handling
 
-###Checkpoint 2:###
+### Checkpoint 2:
 - Complete file serving / receiving feature
 - Complete client side program
 
