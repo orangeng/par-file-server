@@ -38,32 +38,40 @@ impl MessageKind {
 pub struct MessageSender{
     pub command:MessageKind,
     pub command_string: String,
-    pub file_path: PathBuf,
+    pub file_path: Option<PathBuf>,
 }
 
 impl MessageSender{
-    pub fn new(command: MessageKind, command_string: String, file_path: PathBuf) -> Self {
+
+    pub fn new(command: MessageKind, command_string: String, file_path: Option<PathBuf>) -> Self {
         Self {command, command_string, file_path}
     } 
     // idk how to chain the vector and bufreader into a single iterator bro
-    pub fn generate_message(self) -> io::Result<(Vec<u8>, BufReader<File> )> {
+    pub fn generate_message(self) -> io::Result<(Vec<u8>, Option<BufReader<File>> )> {
+        let mut payload_length: u64 = 0;
+        let mut reader = None;
+        match &self.file_path {
+            Some(file_path) => {
+                let file = File::open(file_path)?;
+                payload_length = file.metadata()?.len();
+                reader = Some(BufReader::new(file));
+            }
+            None => {
+            }
+        }
+        let command_string = self.command_string.as_bytes();
+        let string_length: u64 = command_string.len().try_into().unwrap();
+        if string_length > 255 {
+            return Err(io::Error::new(io::ErrorKind::Other, "Command string too long"));
+        }
 
-       let file: File = File::open(&self.file_path)?;
-       let command_string = self.command_string.as_bytes();
-       let string_length: u64 = command_string.len().try_into().unwrap();
-       if string_length > 255 {
-        return Err(io::Error::new(io::ErrorKind::Other, "Command string too long"));
-       }
-       let payload_length: u64 = file.metadata()?.len();
-       
-
-       let size: u64 = 10 + string_length + payload_length; 
-       let mut headers: Vec<u8> = vec![];
-       headers.extend(size.to_be_bytes());
-       headers.push(self.command as u8);
-       headers.push(string_length as u8);
-       headers.extend_from_slice(command_string);
-       Ok((headers,BufReader::new(file)))
+        let size: u64 = 10 + string_length + payload_length; 
+        let mut headers: Vec<u8> = vec![];
+        headers.extend(size.to_be_bytes());
+        headers.push(self.command as u8);
+        headers.push(string_length as u8);
+        headers.extend_from_slice(command_string);
+        Ok((headers, reader))
     }
 
 }
@@ -103,6 +111,10 @@ impl MessageReciever {
         }
         writer.flush()?;
         return Ok(())
+    }
+
+    pub fn get_reader(self) -> BufReader<TcpStream> {
+        return self.payload;
     }
 }
 
