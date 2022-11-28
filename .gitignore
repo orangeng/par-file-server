@@ -1,0 +1,3 @@
+target/
+commands.sh
+Cargo.lock
