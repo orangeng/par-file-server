@@ -7,3 +7,15 @@ edition = "2021"
 
 [dependencies]
 regex = "1"
+
+[lib]
+name = "parfs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "client"          
+path = "src/bin/parfs-client.rs" 
+
+[[bin]]
+name = "server"          
+path = "src/bin/parfs-server.rs" 

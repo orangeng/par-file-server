@@ -11,6 +11,7 @@ use std::str::from_utf8;
 pub enum MessageKind {
     Connect = 001,
     Login = 002,
+    Success = 003,
     Mkdir = 010,
     Cd = 020,
     Ls = 030,
@@ -24,6 +25,7 @@ impl MessageKind {
         match value {
             001 => MessageKind::Connect ,
             002 => MessageKind::Login ,
+            003 => MessageKind::Success,
             010 => MessageKind::Mkdir ,
             020 => MessageKind::Cd ,
             030 => MessageKind::Ls ,
@@ -86,11 +88,11 @@ pub struct MessageReciever {
 
 impl MessageReciever {
     pub fn new(mut payload: BufReader<TcpStream>)-> io::Result<Self>{
-        let mut headers = [0u8, 10];
+        let mut headers: [u8; 10] = [0; 10];
         payload.read_exact(&mut headers)?;
         let mut payload_size = u64::from_be_bytes(headers[0..8].try_into().unwrap());    
-        let command: MessageKind = MessageKind::from_u8(headers[9]);
-        let string_size: u8 = headers[10];
+        let command: MessageKind = MessageKind::from_u8(headers[8]);
+        let string_size: u8 = headers[9];
         let mut command_string: Vec<u8> = vec![0u8,string_size];
         payload.read_exact(&mut command_string)?;
         let command_string = from_utf8(&command_string).unwrap().to_string(); 
