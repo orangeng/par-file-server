@@ -18,22 +18,30 @@ impl Connection {
     // Check if command is valid
     let invalid: String = "Command was invalid. Type 'help' for a list of commands.".to_string();
     let command_type: Command = match tokens[0] {
-      "connect" => Command::connect,
-      "help" => Command::help,
-      "login" => Command::login,
-      "mkdir" => Command::mkdir,
-      "cd" => Command::cd,
-      "ls" => Command::ls,
-      "up" => Command::up,
-      "down" => Command::down,
+      "connect" => Command::Connect,
+      "help" => Command::Help,
+      "login" => Command::Login,
+      "mkdir" => Command::Mkdir,
+      "cd" => Command::Cd,
+      "ls" => Command::Ls,
+      "up" => Command::Up,
+      "down" => Command::Down,
       _ => {return Err(invalid)}
     };
 
     // "connect" command
-    if let Command::connect = command_type{
+    if let Command::Connect = command_type {
       let stream_result: TcpStream = self.connect(tokens)?;
       self.stream = Some(stream_result);
       self.addr = tokens[1].to_string();
+      return Ok(());
+    }
+
+    if let Command::Help = command_type {
+      for command in Command::iterator() {
+        let command_str: String = command.get_str();
+        println!("{:?}{} {}", command_str, " ".repeat(20 - command_str.len()),command.get_desc());
+      }
       return Ok(());
     }
 
