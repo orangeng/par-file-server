@@ -24,7 +24,7 @@ impl MessageKind {
     pub fn from_u8(value: u8) -> MessageKind {
         match value {
             001 => MessageKind::Connect ,
-            002 => MessageKind::Login ,
+            002 => MessageKind::Login , 
             003 => MessageKind::Success,
             010 => MessageKind::Mkdir ,
             020 => MessageKind::Cd ,
@@ -79,15 +79,15 @@ impl MessageSender{
 }
 
 #[derive (Debug)]
-pub struct MessageReciever {
+pub struct MessageReceiver <'a>{
     pub command: MessageKind,
     pub command_string: String,
-    pub payload: BufReader<TcpStream>,
+    pub payload: BufReader<&'a TcpStream>,
     pub payload_size: u64,
 }
 
-impl MessageReciever {
-    pub fn new(mut payload: BufReader<TcpStream>)-> io::Result<Self>{
+impl <'a> MessageReceiver <'a>{
+    pub fn new(mut payload: BufReader<&'a TcpStream>)-> io::Result<Self>{
         let mut headers: [u8; 10] = [0; 10];
         payload.read_exact(&mut headers)?;
         let mut payload_size = u64::from_be_bytes(headers[0..8].try_into().unwrap());    
@@ -115,7 +115,7 @@ impl MessageReciever {
         return Ok(())
     }
 
-    pub fn get_reader(self) -> BufReader<TcpStream> {
+    pub fn get_reader(self) -> BufReader<&'a TcpStream> {
         return self.payload;
     }
 }
