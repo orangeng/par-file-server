@@ -25,7 +25,8 @@ fn main() {
   
   for stream in listener.incoming() {
     let stream = stream.unwrap();
-      ConnectionHandler::new(stream).unwrap();
+      let handle = ConnectionHandler::new(stream, home_folder.clone()).unwrap();
+      handle.handle_connection();
   }
   
 

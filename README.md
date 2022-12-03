@@ -54,12 +54,12 @@ We wanted to do this as we were inspired by long-time protocols such as FTP and 
 - **1a: Implementing concurrent access to critical region for multiple threads** 
 - Imagine a scenario where 2 separate client devices connect to the singular server and one asks for a file while the other is writing the same file. It could be as simple as one client doing a “ls” to see the files stored while that list is being updated. We need to deconflict this. This can be done with concurrency algorithms such as Peterson’s solution / Djikstra’s algorithm.
 - **1b: Atomicity of operations**
-- Each operation should be done to completion or not fully rolled back. An example would be if the server receives a file but the stream gets interrupted. We should not have a corrupted file in the server following that failure. 
+- Each operation should be done to completion or not fully rolled back. An example would be if the server Receives a file but the stream gets interrupted. We should not have a corrupted file in the server following that failure. 
 
 ### Challenge 2: Creating our own custom communication protocol
 We plan to design our own application-layer protocol from scratch and this will come with a few challenges as listed below:
 - **2a: Interpreting the input stream**
-- The data that is being sent / received in the TCP streams are raw bytes. We have to come up with a scheme to interpret the incoming bytes and translate them into the specific instructions and arguments.
+- The data that is being sent / Received in the TCP streams are raw bytes. We have to come up with a scheme to interpret the incoming bytes and translate them into the specific instructions and arguments.
 - **2b: Encryption**
 - We can choose to implement a simple encryption scheme for our data transmitted in the TCP stream. It will be challenging to implement the encryption and decryption scheme as we are working with a custom communication protocol and given the large number of file types. 
 
