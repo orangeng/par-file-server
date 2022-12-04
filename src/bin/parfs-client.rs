@@ -1,5 +1,5 @@
 extern crate parfs;
-use std::{io::{self, Write, Error, Read}, process::exit, net::TcpStream};
+use std::{io::{self, Write}, process::exit};
 use parfs::client::connection::Connection;
 
 fn main() {
@@ -10,7 +10,8 @@ fn main() {
   // Connection that will be used by this client program
   let mut conn: Connection = Connection{
     stream: None,
-    addr: "".to_string()
+    addr: "".to_string(),
+    cwd: "".to_string(),
   };
   
   while !quit {

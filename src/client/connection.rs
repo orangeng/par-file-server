@@ -1,6 +1,6 @@
 use std::io::Error;
 use regex::Regex;
-use crate::client::utilities::Command;
+use crate::client::utilities::*;
 use std::{
   io::{BufReader},
   net::TcpStream,
@@ -8,13 +8,18 @@ use std::{
 
 use crate::message::*;
 
+const ERR_NO_STREAM: &str = "Connection has not been established yet. Type 'help' for a list of commands.";
+const ERR_NON_SERVER: &str = "There was an error processing the command. Please try again!";
+const ERR_SERVER: &str = "Server did not process command. Is it valid?";
+
 pub struct Connection {
   pub stream: Option<TcpStream>,
   pub addr: String,
+  pub cwd: String,
 }
 
 impl Connection {
-  
+
   // This function returns a Result. The Err(String) contains the string that will be
   // printed on the user interface
   pub fn process_command(&mut self, tokens: &Vec<&str>) -> Result<(), String>{
@@ -55,7 +60,15 @@ impl Connection {
 
     // Check if stream is established
     if self.stream.is_none(){
-      return Err("Connection has not been established yet. Type 'help' for a list of commands.".to_string());
+      return Err(ERR_NO_STREAM.to_string());
+    }
+
+    // "cd" command
+    if let Command::Cd = command_type{
+      let ok: () = self.cd(&tokens)?;
+      if ok == () {
+        self.cwd = tokens[1].to_string();
+      }
     }
 
     return Ok(());
@@ -135,19 +148,27 @@ impl Connection {
     let tcp_stream: &TcpStream = match &self.stream {
       Some(tcp) => &tcp,
       None => {
-        return Err("Tcp stream not established.".to_string());
+        return Err(ERR_NO_STREAM.to_string());
       }
     };
 
-    // use message.rs wrapper for sending message
-    let message_sender: MessageSender = MessageSender::new(MessageKind::Cd, tokens[1].to_string(), None, tcp_stream);
-    message_sender.send_message();
+    // Sends cd request
+    let message_sender: MessageSender = MessageSender::new(
+        MessageKind::Cd,
+        tokens[1].to_string(),
+        None,
+        tcp_stream);
+    let ms_result: Result<(), Error> = message_sender.send_message();
+    if ms_result.is_err(){
+      return Err(ERR_NON_SERVER.to_string());
+    }
 
+    // Read in request output from server
     let tcp_reader: BufReader<&TcpStream> = BufReader::new(tcp_stream);
     let confirmation_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
       Ok(server_message) => server_message,
-      Err(e) => {
-        return Err(e.to_string());
+      Err(_) => {
+        return Err(ERR_NON_SERVER.to_string());
       }
     };
 
@@ -156,7 +177,7 @@ impl Connection {
         return Ok(());
       },
       _ => {
-        return Err("Something went wrong".to_string());
+        return Err(ERR_SERVER.to_string());
       }
     };
   }
@@ -170,10 +191,11 @@ impl Connection {
 
   fn status(&self){
     if self.stream.is_none() {
-      println!("Connection has not been established. Use \"connect\" to connect to a parfs server.");
+      println!("{}", ERR_NO_STREAM);
       return;
     }
     println!("Connected to server at {}.", self.addr);
+    println!("Current working directory is '{}'", self.cwd);
   }
 
 }
