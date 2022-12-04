@@ -12,6 +12,7 @@ pub enum MessageKind {
     Connect = 001,
     Login = 002,
     Success = 003,
+    Error = 004,
     Mkdir = 010,
     Cd = 020,
     Ls = 030,
