@@ -27,6 +27,7 @@ impl MessageKind {
             001 => MessageKind::Connect ,
             002 => MessageKind::Login , 
             003 => MessageKind::Success,
+            004 => MessageKind::Error,
             010 => MessageKind::Mkdir ,
             020 => MessageKind::Cd ,
             030 => MessageKind::Ls ,
