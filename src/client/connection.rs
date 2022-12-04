@@ -107,34 +107,7 @@ impl Connection {
     return Ok(stream);
   }
 
-  fn send_message(&self, message: MessageSender, headers: Vec<u8>, payload: Option<BufReader<File>>) -> Result<(), String> {
-    // create TcpStream writer using the stored stream
-    let mut writer = BufWriter::new(
-      match &self.stream {
-        Some(stream) => stream,
-        None => return Err("Connection has not been established yet. Type 'help' for a list of commands.".to_string())
-      }
-    );
-    // write all headers
-    writer.write_all(&headers);
-    // if there is a payload, send it
-    match payload {
-        Some(mut file) => {
-            let mut length = 1;
-            while length > 0 {
-                let buffer = file.fill_buf();
-                length = buffer.len();
-                file.consume(length);
-            }
-        }
-        None => {}
-    }
-    // clean the buffered writer
-    writer.flush();
-    return Ok(());
-  }
-
-  fn cd(self, tokens: &Vec<&str>) -> Result<bool, String> {
+  fn cd(self, tokens: &Vec<&str>) -> Result<(), String> {
     let help: String = "Help:\n\tcd [file path]".to_string();
     
     // currently only supports non-spaced file paths
@@ -142,22 +115,33 @@ impl Connection {
     if tokens.len() != 2 {
       return Err(help);
     }
-
-    let receiver: MessageReceiver = MessageReceiver::new();
-
-    // use message.rs wrapper for sending message
-    let message: MessageSender = MessageSender::new(MessageKind::Cd, tokens[0].to_string(), None);
-    let header = match message.generate_message() {
-      Ok((h, _)) => h,
-      Err(err) => {
-        return Err(err.to_string());
+    let tcp_stream: &TcpStream = match self.stream {
+      Some(tcp) => &tcp,
+      None => {
+        return Err("tcp stream not established.".to_string());
       }
     };
-    self.send_message(message, header, None);
 
+    // use message.rs wrapper for sending message
+    let message_handler: MessageSender = MessageSender::new(MessageKind::Cd, tokens[0].to_string(), None, tcp_stream);
+    message_handler.send_message();
 
+    let tcp_reader: BufReader<&TcpStream> = BufReader::new(tcp_stream);
+    let mut return_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+      Ok(server_message) => server_message,
+      Err(e) => {
+        return Err(e.to_string());
+      }
+    };
 
-    Ok(true)
+    match return_message.command {
+      MessageKind::Success => {
+        return Ok(());
+      },
+      _ => {
+        return Err("Something went wrong".to_string());
+      }
+    };
   }
 
   fn help(&self){
