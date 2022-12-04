@@ -39,19 +39,40 @@ impl MessageKind {
 }
 
 #[derive(Debug)]
-pub struct MessageSender{
+pub struct MessageSender <'a>{
     pub command:MessageKind,
     pub command_string: String,
     pub file_path: Option<PathBuf>,
+    pub writer: BufWriter<&'a TcpStream>
 }
 
-impl MessageSender{
+impl <'a> MessageSender <'a>{
 
-    pub fn new(command: MessageKind, command_string: String, file_path: Option<PathBuf>) -> Self {
-        Self {command, command_string, file_path}
+    // generator
+    pub fn new(command: MessageKind, command_string: String, file_path: Option<PathBuf>, tcpstream: &'a TcpStream) -> Self {
+        Self {command, command_string, file_path, writer: BufWriter::new(&tcpstream)}
     } 
+
+    // blocking function!!!
+    pub fn send_message(self) -> io::Result<()>{
+        let (headers, payload) = self.generate_message()?;
+        self.writer.write_all(&headers)?;
+        match payload {
+            Some(mut file) => {
+                let mut length = 1;
+                while length > 0 {
+                    let buffer = file.fill_buf()?;
+                    length = buffer.len();
+                    file.consume(length);
+                }
+            }
+            None => {}
+        }
+        self.writer.flush();
+        return Ok(());
+    }
     // idk how to chain the vector and bufreader into a single iterator bro
-    pub fn generate_message(self) -> io::Result<(Vec<u8>, Option<BufReader<File>> )> {
+    fn generate_message(self) -> io::Result<(Vec<u8>, Option<BufReader<File>> )> {
         let mut payload_length: u64 = 0;
         let mut reader = None;
         match &self.file_path {
