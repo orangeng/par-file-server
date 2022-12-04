@@ -7,7 +7,7 @@ use std::str::from_utf8;
 
 // Refactor this rubbish with proper error handling, use custom types instead of io 
 // https://www.sheshbabu.com/posts/rust-error-handling/
-#[derive(Debug) ]
+#[derive(Debug, Clone) ]
 pub enum MessageKind {
     Connect = 001,
     Login = 002,
@@ -54,7 +54,7 @@ impl <'a> MessageSender <'a>{
     } 
 
     // blocking function!!!
-    pub fn send_message(self) -> io::Result<()>{
+    pub fn send_message(mut self) -> io::Result<()>{
         let (headers, payload) = self.generate_message()?;
         self.writer.write_all(&headers)?;
         match payload {
@@ -72,7 +72,7 @@ impl <'a> MessageSender <'a>{
         return Ok(());
     }
     // idk how to chain the vector and bufreader into a single iterator bro
-    fn generate_message(self) -> io::Result<(Vec<u8>, Option<BufReader<File>> )> {
+    fn generate_message(&self) -> io::Result<(Vec<u8>, Option<BufReader<File>> )> {
         let mut payload_length: u64 = 0;
         let mut reader = None;
         match &self.file_path {
@@ -93,7 +93,7 @@ impl <'a> MessageSender <'a>{
         let size: u64 = 10 + string_length + payload_length; 
         let mut headers: Vec<u8> = vec![];
         headers.extend(size.to_be_bytes());
-        headers.push(self.command as u8);
+        headers.push(self.command.clone() as u8);
         headers.push(string_length as u8);
         headers.extend_from_slice(command_string);
         Ok((headers, reader))
@@ -110,17 +110,17 @@ pub struct MessageReceiver <'a>{
 }
 
 impl <'a> MessageReceiver <'a>{
-    pub fn new(mut payload: BufReader<&'a TcpStream>)-> io::Result<Self>{
+    pub fn new(mut tcpstream: BufReader<&'a TcpStream>)-> io::Result<Self>{
         let mut headers: [u8; 10] = [0; 10];
-        payload.read_exact(&mut headers)?;
+        tcpstream.read_exact(&mut headers)?;
         let mut payload_size = u64::from_be_bytes(headers[0..8].try_into().unwrap());    
         let command: MessageKind = MessageKind::from_u8(headers[8]);
         let string_size: u8 = headers[9];
         let mut command_string: Vec<u8> = vec![0u8,string_size];
-        payload.read_exact(&mut command_string)?;
+        tcpstream.read_exact(&mut command_string)?;
         let command_string = from_utf8(&command_string).unwrap().to_string(); 
         payload_size -= 10 + string_size as u64;
-        Ok(Self {command, command_string, payload, payload_size})
+        Ok(Self {command, command_string, payload:tcpstream, payload_size})
     }
 
     pub fn write_to(mut self, file_path: PathBuf)-> io::Result<()>{
