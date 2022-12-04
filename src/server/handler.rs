@@ -3,7 +3,7 @@ use std::{
     io::{BufRead, BufReader, BufWriter, Read, Write},
     net::TcpStream,
     path::{PathBuf, Path},
-    fs,
+    fs, mem,
 };
 
 use crate::message::{*, self};
@@ -32,50 +32,45 @@ impl ConnectionHandler {
     pub fn handle_connection(mut self) {
         loop {
             let tcp_reader = BufReader::new(&self.tcpstream);
-            let tcp_writer = BufWriter::new(&self.tcpstream);
-            let mut client_request = match MessageReceiver::new(tcp_reader) {
+            let client_request = match MessageReceiver::new(tcp_reader) {
                 Ok(message) => message,
-                Err(e) => panic!("summathing went wrong ere: {}", e),
+                Err(e) => panic!("message forming failed :( {}", e),
             };
-            match self.process_message(client_request, tcp_writer){
-                Ok(message) => {message.send_message();},
-                Err(e) => {},
+            print!("Recieved request..");
+            print!("{}", &client_request.command_string);
+            
+            // match statements to process different commands
+            let result = match &client_request.command {
+                MessageKind::Mkdir => {
+                    self.mkdir(client_request.command_string)
+                },
+                MessageKind::Cd => {
+                    self.cd(client_request.command_string)
+                },
+                MessageKind::Ls => {
+                    self.ls(client_request.command_string)
+                },
+                // MessageKind::Up => {
+
+                // },
+                // MessageKind::Down => {
+
+                // },
+                _ => {Ok("ok".to_string())},
+            };
+            match result {
+                Ok(success_message) => {
+                    let response = MessageSender::new( MessageKind::Success,  success_message,  None,  &self.tcpstream );
+                    response.send_message();
+                }
+                Err(e) => {
+                    let response = MessageSender::new( MessageKind::Error,  e.to_string(),  None,  &self.tcpstream );
+                    response.send_message();
+                }
             }
         }
     }
 
-
-    // big match statement to process different commands and do some simple checking. Returns message to send to client
-    fn process_message<'a>(&mut self, mut client_request: MessageReceiver, tcpwriter: BufWriter<&'a TcpStream>) -> io::Result<MessageSender> {
-        let result = match &client_request.command {
-            MessageKind::Mkdir => {
-                self.mkdir(client_request.command_string)
-            },
-            MessageKind::Cd => {
-                self.cd(client_request.command_string)
-            },
-            MessageKind::Ls => {
-                self.ls(client_request.command_string)
-            },
-            // MessageKind::Up => {
-
-            // },
-            // MessageKind::Down => {
-
-            // },
-            _ => {Ok("ok".to_string())},
-        };
-        match result {
-            Ok(success_message) => {
-                Ok(MessageSender { command: MessageKind::Success, command_string: success_message, file_path: None, writer: tcpwriter })
-            }
-            Err(e) => {
-                Ok(MessageSender { command: (MessageKind::Error), command_string: e.to_string(), file_path: None, writer:tcpwriter})
-            }
-        }
-    }
-
-    // maketh dirs
     fn mkdir(&self, dir_name:String) -> io::Result<String>{
         let mut new_dir = Path::new(&dir_name);
         if new_dir.starts_with("/") {
@@ -100,7 +95,7 @@ impl ConnectionHandler {
     }
 
     fn ls(&self, path_name:String) -> io::Result<String> {
-        return Ok("this aint working yet buddy".to_string()) 
+        return Ok("this aint working yet".to_string()) 
         // let mut new_path = PathBuf::from(path_name);
         // if new_path.starts_with("/") {
         //     new_path = PathBuf::from(new_path.strip_prefix("/").expect("This really shouldnt fail"));

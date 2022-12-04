@@ -111,6 +111,8 @@ pub struct MessageReceiver <'a>{
 }
 
 impl <'a> MessageReceiver <'a>{
+    
+    // blocks until it receives message headers and forms itself
     pub fn new(mut tcpstream: BufReader<&'a TcpStream>)-> io::Result<Self>{
         let mut headers: [u8; 10] = [0; 10];
         tcpstream.read_exact(&mut headers)?;
@@ -124,6 +126,7 @@ impl <'a> MessageReceiver <'a>{
         Ok(Self {command, command_string, payload:tcpstream, payload_size})
     }
 
+    // writes to a file_path
     pub fn write_to(mut self, file_path: PathBuf)-> io::Result<()>{
         let file = File::create(file_path).unwrap();
         let mut writer = BufWriter::new(file); 
