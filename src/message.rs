@@ -116,11 +116,13 @@ impl <'a> MessageReceiver <'a>{
     pub fn new(mut tcpstream: BufReader<&'a TcpStream>)-> io::Result<Self>{
         let mut headers: [u8; 10] = [0; 10];
         tcpstream.read_exact(&mut headers)?;
+        println!("{:#?}",headers);
         let mut payload_size = u64::from_be_bytes(headers[0..8].try_into().unwrap());    
         let command: MessageKind = MessageKind::from_u8(headers[8]);
         let string_size: u8 = headers[9];
-        let mut command_string: Vec<u8> = vec![0u8,string_size];
+        let mut command_string: Vec<u8> = vec![0u8; string_size as usize];
         tcpstream.read_exact(&mut command_string)?;
+        println!("{:#?}",command_string);
         let command_string = from_utf8(&command_string).unwrap().to_string(); 
         payload_size -= 10 + string_size as u64;
         Ok(Self {command, command_string, payload:tcpstream, payload_size})
