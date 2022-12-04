@@ -1,8 +1,15 @@
-use std::net::TcpStream;
 use std::io::Error;
-use std::io::Read;
 use regex::Regex;
 use crate::client::utilities::Command;
+use std::{
+  io,
+  io::{BufRead, BufReader, BufWriter, Read, Write},
+  net::TcpStream,
+  path::PathBuf,
+};
+use std::fs::File;
+
+use crate::message::*;
 
 pub struct Connection {
   pub stream: Option<TcpStream>,
@@ -98,6 +105,59 @@ impl Connection {
     println!("New address to connect to: {}", new_addr);
     
     return Ok(stream);
+  }
+
+  fn send_message(&self, message: MessageSender, headers: Vec<u8>, payload: Option<BufReader<File>>) -> Result<(), String> {
+    // create TcpStream writer using the stored stream
+    let mut writer = BufWriter::new(
+      match &self.stream {
+        Some(stream) => stream,
+        None => return Err("Connection has not been established yet. Type 'help' for a list of commands.".to_string())
+      }
+    );
+    // write all headers
+    writer.write_all(&headers);
+    // if there is a payload, send it
+    match payload {
+        Some(mut file) => {
+            let mut length = 1;
+            while length > 0 {
+                let buffer = file.fill_buf();
+                length = buffer.len();
+                file.consume(length);
+            }
+        }
+        None => {}
+    }
+    // clean the buffered writer
+    writer.flush();
+    return Ok(());
+  }
+
+  fn cd(self, tokens: &Vec<&str>) -> Result<bool, String> {
+    let help: String = "Help:\n\tcd [file path]".to_string();
+    
+    // currently only supports non-spaced file paths
+    // TODO: support quotation file paths
+    if tokens.len() != 2 {
+      return Err(help);
+    }
+
+    let receiver: MessageReceiver = MessageReceiver::new();
+
+    // use message.rs wrapper for sending message
+    let message: MessageSender = MessageSender::new(MessageKind::Cd, tokens[0].to_string(), None);
+    let header = match message.generate_message() {
+      Ok((h, _)) => h,
+      Err(err) => {
+        return Err(err.to_string());
+      }
+    };
+    self.send_message(message, header, None);
+
+
+
+    Ok(true)
   }
 
   fn help(&self){
