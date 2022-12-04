@@ -6,7 +6,7 @@ use crate::client::utilities::Command;
 
 pub struct Connection {
   pub stream: Option<TcpStream>,
-  pub addr: String
+  pub addr: String,
 }
 
 impl Connection {
@@ -26,6 +26,7 @@ impl Connection {
       "ls" => Command::Ls,
       "up" => Command::Up,
       "down" => Command::Down,
+      "status" => Command::Status,
       _ => {return Err(invalid)}
     };
 
@@ -36,12 +37,15 @@ impl Connection {
       self.addr = tokens[1].to_string();
       return Ok(());
     }
-
+    
+    // "help" command
     if let Command::Help = command_type {
-      for command in Command::iterator() {
-        let command_str: String = command.get_str();
-        println!("{:?}{} {}", command_str, " ".repeat(20 - command_str.len()),command.get_desc());
-      }
+      self.help();
+      return Ok(());
+    }
+    // "status" command
+    else if let Command::Status = command_type{
+      self.status();
       return Ok(());
     }
 
@@ -94,6 +98,21 @@ impl Connection {
     println!("New address to connect to: {}", new_addr);
     
     return Ok(stream);
+  }
+
+  fn help(&self){
+    for command in Command::iterator() {
+      let command_str: String = command.get_str();
+      println!("{:?}{} {}", command_str, " ".repeat(20 - command_str.len()),command.get_desc());
+    }
+  }
+
+  fn status(&self){
+    if self.stream.is_none() {
+      println!("Connection has not been established. Use \"connect\" to connect to a parfs server.");
+      return;
+    }
+    println!("Connected to server at {}.", self.addr);
   }
 
 }

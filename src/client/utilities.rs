@@ -9,7 +9,8 @@ pub enum Command {
   Cd,
   Ls,
   Up,
-  Down
+  Down,
+  Status
 }
 
 impl Command {
