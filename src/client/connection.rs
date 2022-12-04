@@ -94,7 +94,9 @@ impl Connection {
     
     // If connection opened successfully
     let mut stream: TcpStream = stream_result.unwrap();
-    let mut buf: [u8; 4]= [0; 4];
+
+    // Code commented out, is for use when server demands a connection on a new port
+    /* let mut buf: [u8; 4]= [0; 4];
     let port_read_result = stream.read(&mut buf);
     if port_read_result.is_err(){
       return Err(wrong_addr);
@@ -102,9 +104,27 @@ impl Connection {
   
     let new_port: i32 = i32::from_le_bytes(buf);
     let new_addr: &str = &(ip_addr.to_string() + ":" + new_port.to_string().as_str());
-    println!("New address to connect to: {}", new_addr);
+    println!("New address to connect to: {}", new_addr); */
     
-    return Ok(stream);
+    // Receives welcome message from server
+    let tcp_reader: BufReader<&TcpStream> = BufReader::new(&stream);
+    let mut return_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+      Ok(server_message) => server_message,
+      Err(e) => {
+        return Err(e.to_string());
+      }
+    };
+
+    // Check welcome message from server and print it out
+    match return_message.command {
+      MessageKind::Success => {
+        println!("{}", return_message.command_string);
+        return Ok(stream);
+      },
+      _ => {
+        return Err(wrong_addr);
+      }
+    };
   }
 
   fn cd(self, tokens: &Vec<&str>) -> Result<(), String> {
