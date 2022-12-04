@@ -18,4 +18,8 @@ path = "src/bin/parfs-client.rs"
 
 [[bin]]
 name = "server"          
-path = "src/bin/parfs-server.rs" 
+path = "src/bin/parfs-server.rs"
+
+[[bin]]
+name = "test"
+path = "src/test.rs"

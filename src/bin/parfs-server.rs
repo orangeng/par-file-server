@@ -7,7 +7,7 @@ use parfs::server::handler::ConnectionHandler;
 
 fn main() {
   let args: Vec<String> =env::args().collect();
-  let home_folder: PathBuf = PathBuf::from(&args[0]);
+  let home_folder: PathBuf = PathBuf::from(&args[1]);
 
   // free_port : Next available port for clients to connect to
   let addr_to_listen: &str = "127.0.0.1:12800";

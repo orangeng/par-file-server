@@ -54,6 +54,8 @@ impl Connection {
       return Ok(());
     }
 
+    /******************** COMMANDS FROM HERE ONWARDS REQUIRE A WORKING TCPSTREAM ********************/
+
     // Check if stream is established
     if self.stream.is_none(){
       return Err(ERR_NO_STREAM.to_string());
@@ -65,6 +67,10 @@ impl Connection {
       if ok == () {
         self.cwd = tokens[1].to_string();
       }
+    }
+
+    else if let Command::Ls = command_type{
+      self.ls(&tokens)?;
     }
 
     return Ok(());
@@ -124,7 +130,7 @@ impl Connection {
     // Check welcome message from server and print it out
     match confirmation_message.command {
       MessageKind::Success => {
-        println!("{}", confirmation_message.command_string);
+        println!("{}", confirmation_message.arguments);
         return Ok(stream);
       },
       _ => {
@@ -172,10 +178,63 @@ impl Connection {
       MessageKind::Success => {
         return Ok(());
       },
-      _ => {
-        return Err(ERR_SERVER.to_string());
+      MessageKind::Error => {
+        println!("{}", &confirmation_message.arguments);
+        return Ok(());
+      },
+      _ => Err(ERR_SERVER.to_string()),
+    }
+  }
+
+  fn ls(&self, tokens: &Vec<&str>) -> Result<(), String> {
+    // Some return strings
+    let help: String = "Help:\n\tls".to_string();
+  
+    // Insufficient / wrong no of arguments
+    if tokens.len() != 1{
+      return Err(help);
+    }
+    
+    // Borrow the TcpStream
+    let tcp_stream: &TcpStream = match &self.stream {
+      Some(tcp) => &tcp,
+      None => {
+        return Err(ERR_NO_STREAM.to_string());
       }
     };
+
+    // Sends ls request
+    let message_sender: MessageSender = MessageSender::new(
+        MessageKind::Ls,
+        "".to_string(),
+        None,
+        tcp_stream);
+    let ms_result: Result<(), Error> = message_sender.send_message();
+    if ms_result.is_err(){
+      return Err(ERR_NON_SERVER.to_string());
+    }
+
+    // Read in request output from server
+    let tcp_reader: BufReader<&TcpStream> = BufReader::new(tcp_stream);
+    let confirmation_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+      Ok(server_message) => server_message,
+      Err(_) => {
+        return Err(ERR_NON_SERVER.to_string());
+      }
+    };
+
+    match  confirmation_message.command {
+      MessageKind::Success => {
+        println!("{}", confirmation_message.arguments);
+        return Ok(());
+      },
+      MessageKind::Error => {
+        println!("{}", &confirmation_message.arguments);
+        return Ok(());
+      },
+      _ => Err(ERR_SERVER.to_string()),
+    }
+
   }
 
   fn help(&self){

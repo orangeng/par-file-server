@@ -18,6 +18,7 @@ pub enum MessageKind {
     Ls = 030,
     Up = 100,
     Down = 200,
+    File = 255,
 }
 
 // what a hacky terrible thing
@@ -33,6 +34,7 @@ impl MessageKind {
             030 => MessageKind::Ls ,
             100 => MessageKind::Up,
             200 => MessageKind::Down,
+            255 => MessageKind::File,
             _ => panic!("Unknown value: {}", value),
         }
     }
@@ -40,8 +42,8 @@ impl MessageKind {
 
 #[derive(Debug)]
 pub struct MessageSender <'a>{
-    pub command:MessageKind,
-    pub command_string: String,
+    pub command: MessageKind,
+    pub arguments: String,
     pub file_path: Option<PathBuf>,
     pub writer: BufWriter<&'a TcpStream>
 }
@@ -49,14 +51,22 @@ pub struct MessageSender <'a>{
 impl <'a> MessageSender <'a>{
 
     // generator
-    pub fn new(command: MessageKind, command_string: String, file_path: Option<PathBuf>, tcpstream: &'a TcpStream) -> Self {
-        Self {command, command_string, file_path, writer: BufWriter::new(&tcpstream)}
+    pub fn new(command: MessageKind, arguments: String, file_path: Option<PathBuf>, tcpstream: &'a TcpStream) -> Self {
+        Self {
+            command, 
+            arguments, 
+            file_path,
+            writer: BufWriter::new(&tcpstream)}
     } 
 
-    // blocking function!!!
+    // Blocking function!!!
     pub fn send_message(mut self) -> io::Result<()>{
+
+        // Generate message and send headers
         let (headers, payload) = self.generate_message()?;
         self.writer.write_all(&headers)?;
+
+        // Send payload if any
         match payload {
             Some(mut file) => {
                 let mut length = 1;
@@ -68,7 +78,7 @@ impl <'a> MessageSender <'a>{
             }
             None => {}
         }
-        self.writer.flush();
+        self.writer.flush()?;
         return Ok(());
     }
     
@@ -85,68 +95,89 @@ impl <'a> MessageSender <'a>{
             None => {
             }
         }
-        let command_string = self.command_string.as_bytes();
-        let string_length: u64 = command_string.len().try_into().unwrap();
-        if string_length > 255 {
-            return Err(io::Error::new(io::ErrorKind::Other, "Command string too long"));
+        let argument_bytes = self.arguments.as_bytes();
+        let argument_length: u64 = argument_bytes.len().try_into().unwrap();
+        if argument_length > 255 {
+            return Err(io::Error::new(io::ErrorKind::Other, "Argument string too long"));
         }
 
-        let size: u64 = 10 + string_length + payload_length; 
+        let size: u64 = 10 + argument_length + payload_length; 
         let mut headers: Vec<u8> = vec![];
         headers.extend(size.to_be_bytes());
         headers.push(self.command.clone() as u8);
-        headers.push(string_length as u8);
-        headers.extend_from_slice(command_string);
+        headers.push(argument_length as u8);
+        headers.extend_from_slice(argument_bytes);
         Ok((headers, reader))
     }
 
 }
 
 #[derive (Debug)]
-pub struct MessageReceiver <'a>{
+pub struct MessageReceiver{
     pub command: MessageKind,
-    pub command_string: String,
-    pub payload: BufReader<&'a TcpStream>,
+    pub arguments: String,
+    // pub payload: BufReader<&'a TcpStream>,
     pub payload_size: u64,
 }
 
-impl <'a> MessageReceiver <'a>{
+impl MessageReceiver{
     
     // blocks until it receives message headers and forms itself
-    pub fn new(mut tcpstream: BufReader<&'a TcpStream>)-> io::Result<Self>{
+    pub fn new(mut tcpstream: BufReader<&TcpStream>)-> io::Result<Self>{
+        // Read in 10 byte header
         let mut headers: [u8; 10] = [0; 10];
         tcpstream.read_exact(&mut headers)?;
-        println!("{:#?}",headers);
+        //println!("{:#?}",headers);
+
+        // Split header into the 3 components
         let mut payload_size = u64::from_be_bytes(headers[0..8].try_into().unwrap());    
         let command: MessageKind = MessageKind::from_u8(headers[8]);
-        let string_size: u8 = headers[9];
-        let mut command_string: Vec<u8> = vec![0u8; string_size as usize];
-        tcpstream.read_exact(&mut command_string)?;
-        println!("{:#?}",command_string);
-        let command_string = from_utf8(&command_string).unwrap().to_string(); 
-        payload_size -= 10 + string_size as u64;
-        Ok(Self {command, command_string, payload:tcpstream, payload_size})
+        let argument_size: u8 = headers[9];
+        
+        // Read in arguments
+        let mut argument_bytes: Vec<u8> = vec![0u8; argument_size as usize];
+        tcpstream.read_exact(&mut argument_bytes)?;
+        //println!("{:#?}",argument_bytes);
+        let argument_string = from_utf8(&argument_bytes).unwrap().to_string();
+
+        // Construct self
+        payload_size -= 10 + argument_size as u64;
+        let message_receiver: MessageReceiver = Self {
+            command: command,
+            arguments: argument_string,
+            payload_size: payload_size
+        }; 
+        
+        /* // Process payload if any
+        if let MessageKind::File = command{
+            let file_path: PathBuf = match dest_path{
+                Some(path) => path,
+                None => {return Err("No destination file path was specified!")}
+            };
+        }*/
+
+        Ok(message_receiver)
     }
 
-    // writes to a file_path
-    pub fn write_to(mut self, file_path: PathBuf)-> io::Result<()>{
+    // Writes to a file_path
+    pub fn write_to(&self, mut tcpstream: BufReader<&TcpStream>, file_path: PathBuf)-> io::Result<()>{
         let file = File::create(file_path).unwrap();
         let mut writer = BufWriter::new(file); 
         let mut byte_count: u64 = 0;
         while byte_count != self.payload_size {
-            let buffer = self.payload.fill_buf()?;
+            let buffer = tcpstream.fill_buf()?;
             writer.write(buffer)?;
             let length = buffer.len();
-            self.payload.consume(length);
+            tcpstream.consume(length);
             byte_count += length as u64;
         }
         writer.flush()?;
         return Ok(())
     }
 
-    pub fn get_reader(self) -> BufReader<&'a TcpStream> {
+    /* pub fn get_reader(self) -> BufReader<&'a TcpStream> {
         return self.payload;
-    }
+    } */
 }
 
 
