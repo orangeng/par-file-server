@@ -71,6 +71,7 @@ impl <'a> MessageSender <'a>{
         self.writer.flush();
         return Ok(());
     }
+    
     // idk how to chain the vector and bufreader into a single iterator bro
     fn generate_message(&self) -> io::Result<(Vec<u8>, Option<BufReader<File>> )> {
         let mut payload_length: u64 = 0;

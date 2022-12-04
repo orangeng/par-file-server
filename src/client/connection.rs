@@ -2,12 +2,9 @@ use std::io::Error;
 use regex::Regex;
 use crate::client::utilities::Command;
 use std::{
-  io,
-  io::{BufRead, BufReader, BufWriter, Read, Write},
+  io::{BufReader},
   net::TcpStream,
-  path::PathBuf,
 };
-use std::fs::File;
 
 use crate::message::*;
 
@@ -84,8 +81,8 @@ impl Connection {
       return Err("Socket address is invalid.\n".to_string() + &help);
     }
   
-    let addr_split: Vec<&str> = addr.split(":").collect();
-    let ip_addr = addr_split[0];
+    //let addr_split: Vec<&str> = addr.split(":").collect();
+    //let ip_addr = addr_split[0];
   
     let stream_result: Result<TcpStream, Error> = TcpStream::connect(tokens[1]);
     if stream_result.is_err(){
@@ -93,7 +90,7 @@ impl Connection {
     }
     
     // If connection opened successfully
-    let mut stream: TcpStream = stream_result.unwrap();
+    let stream: TcpStream = stream_result.unwrap();
 
     // Code commented out, is for use when server demands a connection on a new port
     /* let mut buf: [u8; 4]= [0; 4];
@@ -108,7 +105,7 @@ impl Connection {
     
     // Receives welcome message from server
     let tcp_reader: BufReader<&TcpStream> = BufReader::new(&stream);
-    let mut return_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+    let confirmation_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
       Ok(server_message) => server_message,
       Err(e) => {
         return Err(e.to_string());
@@ -116,9 +113,9 @@ impl Connection {
     };
 
     // Check welcome message from server and print it out
-    match return_message.command {
+    match confirmation_message.command {
       MessageKind::Success => {
-        println!("{}", return_message.command_string);
+        println!("{}", confirmation_message.command_string);
         return Ok(stream);
       },
       _ => {
@@ -127,7 +124,7 @@ impl Connection {
     };
   }
 
-  fn cd(self, tokens: &Vec<&str>) -> Result<(), String> {
+  fn cd(&mut self, tokens: &Vec<&str>) -> Result<(), String> {
     let help: String = "Help:\n\tcd [file path]".to_string();
     
     // currently only supports non-spaced file paths
@@ -135,26 +132,26 @@ impl Connection {
     if tokens.len() != 2 {
       return Err(help);
     }
-    let tcp_stream: &TcpStream = match self.stream {
+    let tcp_stream: &TcpStream = match &self.stream {
       Some(tcp) => &tcp,
       None => {
-        return Err("tcp stream not established.".to_string());
+        return Err("Tcp stream not established.".to_string());
       }
     };
 
     // use message.rs wrapper for sending message
-    let message_handler: MessageSender = MessageSender::new(MessageKind::Cd, tokens[0].to_string(), None, tcp_stream);
-    message_handler.send_message();
+    let message_sender: MessageSender = MessageSender::new(MessageKind::Cd, tokens[1].to_string(), None, tcp_stream);
+    message_sender.send_message();
 
     let tcp_reader: BufReader<&TcpStream> = BufReader::new(tcp_stream);
-    let mut return_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+    let confirmation_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
       Ok(server_message) => server_message,
       Err(e) => {
         return Err(e.to_string());
       }
     };
 
-    match return_message.command {
+    match  confirmation_message.command {
       MessageKind::Success => {
         return Ok(());
       },
