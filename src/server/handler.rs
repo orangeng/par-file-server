@@ -1,12 +1,11 @@
 use std::{
     fs, io,
-    io::{BufRead, BufReader, BufWriter, Read, Write},
-    mem,
+    io::{BufReader},
     net::TcpStream,
     path::{Path, PathBuf},
 };
 
-use crate::message::{self, *};
+use crate::message::*;
 
 pub struct ConnectionHandler {
     tcpstream: TcpStream,

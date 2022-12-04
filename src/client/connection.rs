@@ -8,10 +8,6 @@ use std::{
 
 use crate::message::*;
 
-const ERR_NO_STREAM: &str = "Connection has not been established yet. Type 'help' for a list of commands.";
-const ERR_NON_SERVER: &str = "There was an error processing the command. Please try again!";
-const ERR_SERVER: &str = "Server did not process command. Is it valid?";
-
 pub struct Connection {
   pub stream: Option<TcpStream>,
   pub addr: String,
