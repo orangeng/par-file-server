@@ -41,30 +41,30 @@ impl MessageKind {
 }
 
 #[derive(Debug)]
-pub struct MessageSender <'a>{
+pub struct MessageSender{
     pub command: MessageKind,
     pub arguments: String,
     pub file_path: Option<PathBuf>,
-    pub writer: BufWriter<&'a TcpStream>
+    // pub writer: BufWriter<&'a TcpStream>
 }
 
-impl <'a> MessageSender <'a>{
+impl MessageSender{
 
     // generator
-    pub fn new(command: MessageKind, arguments: String, file_path: Option<PathBuf>, tcpstream: &'a TcpStream) -> Self {
+    pub fn new(command: MessageKind, arguments: String, file_path: Option<PathBuf>) -> Self {
         Self {
             command, 
             arguments, 
-            file_path,
-            writer: BufWriter::new(&tcpstream)}
+            file_path
+        }
     } 
 
     // Blocking function!!!
-    pub fn send_message(mut self) -> io::Result<()>{
+    pub fn send_message(&self, mut writer: BufWriter<&TcpStream>) -> io::Result<()>{
 
         // Generate message and send headers
         let (headers, payload) = self.generate_message()?;
-        self.writer.write_all(&headers)?;
+        writer.write_all(&headers)?;
 
         // Send payload if any
         match payload {
@@ -78,7 +78,7 @@ impl <'a> MessageSender <'a>{
             }
             None => {}
         }
-        self.writer.flush()?;
+        writer.flush()?;
         return Ok(());
     }
     

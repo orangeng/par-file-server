@@ -26,7 +26,7 @@ fn main() {
   let listener: TcpListener = listener_result.unwrap();
   for stream in listener.incoming() {
     let stream = stream.unwrap();
-      let handle = ConnectionHandler::new(stream, home_folder.clone()).unwrap();
+      let mut handle = ConnectionHandler::new(stream, home_folder.clone()).unwrap();
       handle.handle_connection();
   }
   

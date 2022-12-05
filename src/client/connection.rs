@@ -2,7 +2,7 @@ use std::io::Error;
 use regex::Regex;
 use crate::client::utilities::*;
 use std::{
-  io::{BufReader},
+  io::{BufReader, BufWriter},
   net::TcpStream,
 };
 
@@ -159,8 +159,9 @@ impl Connection {
         MessageKind::Cd,
         tokens[1].to_string(),
         None,
-        tcp_stream);
-    let ms_result: Result<(), Error> = message_sender.send_message();
+    );
+    let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&tcp_stream);
+    let ms_result: Result<(), Error> = message_sender.send_message(tcp_writer);
     if ms_result.is_err(){
       return Err(ERR_NON_SERVER.to_string());
     }
@@ -208,8 +209,9 @@ impl Connection {
         MessageKind::Ls,
         "".to_string(),
         None,
-        tcp_stream);
-    let ms_result: Result<(), Error> = message_sender.send_message();
+      );
+    let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&tcp_stream);
+    let ms_result: Result<(), Error> = message_sender.send_message(tcp_writer);
     if ms_result.is_err(){
       return Err(ERR_NON_SERVER.to_string());
     }

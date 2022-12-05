@@ -1,6 +1,6 @@
 use std::{
     fs, io::{self},
-    io::{BufReader, Error},
+    io::{BufReader, BufWriter, Error, ErrorKind},
     net::TcpStream,
     path::{Path, PathBuf},
 };
@@ -25,14 +25,19 @@ impl ConnectionHandler {
             MessageKind::Success,
             "Welcome to parfs!".to_string(),
             None,
-            &handler.tcpstream,
         );
-        welcome_message.send_message()?;
+        let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&handler.tcpstream);
+        let final_msg_result = welcome_message.send_message(tcp_writer);
+
+        if let Err(e) = final_msg_result{
+            println!("{}", e);
+        }
+        
         return Ok(handler);
     }
 
     // main loop of the handler
-    pub fn handle_connection(mut self) {
+    pub fn handle_connection(&mut self) {
         loop {
             // Creates a MessageReceiver and waits for incoming messages
             let tcp_reader: BufReader<&TcpStream> = BufReader::new(&self.tcpstream);
@@ -49,7 +54,7 @@ impl ConnectionHandler {
             // Group of match statements to process different commands
             let message_kind: MessageKind = client_request.command;
             let arguments: String = client_request.arguments;
-            let result: Result<(), Error> = match message_kind {
+            let result: Result<MessageSender, Error> = match message_kind {
                 MessageKind::Mkdir => self.mkdir(arguments),
                 MessageKind::Cd => self.cd(arguments),
                 MessageKind::Ls => self.ls(),
@@ -61,17 +66,32 @@ impl ConnectionHandler {
                 // },
 
                 //place holder
-                _ => Ok(()),
+                _ => Err(Error::new(ErrorKind::Other, "Message type couldn't be found :<")),
             };
 
-            if let Err(e) = result{
+            // Ok() will be the MessageSender created by the individual functions, be it Success / Error
+            // Err() will be errors propagated by ? in other parts of the function
+            let final_msg_result : Result<(), Error> = match result{
+                Ok(message) => {
+                    let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&self.tcpstream);
+                    message.send_message(tcp_writer)
+                },
+                Err(e) => {
+                    println!("{}", e);
+                    let generic_server_err: String = "There was an error at the server. Please try again!".to_string();
+                    let error_message: MessageSender = self.error_message(generic_server_err);
+                    let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&self.tcpstream);
+                    error_message.send_message(tcp_writer)
+                },
+            };
+
+            if let Err(e) = final_msg_result{
                 println!("{}", e);
             }
-
         }
     }
 
-    fn mkdir(&self, dir_name: String) -> io::Result<()> {
+    fn mkdir(&self, dir_name: String) -> io::Result<MessageSender> {
         let mut new_dir = Path::new(&dir_name);
         if new_dir.starts_with("/") {
             new_dir = new_dir
@@ -84,12 +104,10 @@ impl ConnectionHandler {
                 .join(&self.current_directory)
                 .join(new_dir),
         )?;
-        let success_message: MessageSender = self.success_message(None);
-        success_message.send_message()?;
-        return Ok(());
+        return Ok(self.success_message(None));
     }
 
-    fn cd(&mut self, path_name: String) -> io::Result<()> {
+    fn cd(&mut self, path_name: String) -> io::Result<MessageSender> {
         let mut new_path = PathBuf::from(path_name);
         // TODO: implement some error checking for filename
         if new_path.starts_with("/") {
@@ -103,24 +121,17 @@ impl ConnectionHandler {
         // Sends success message if path exists
         if Path::new(&self.home_directory).join(&new_path).exists() {
             self.current_directory = new_path;
-            let success_message: MessageSender = self.success_message(None);
-            success_message.send_message()?;
-            return Ok(());
-        } 
+            return Ok(self.success_message(None));
+        }
         
         // Sends error message if file does not exists
         else {
-            let error_message: MessageSender = self.error_message("File path does not exist!".to_string());
-            error_message.send_message()?;
-            return Ok(());
+            return Ok(self.error_message("File path does not exist!".to_string()));
         }
     }
 
-    fn ls(&self) -> io::Result<()> {
-        let paths = match fs::read_dir(&self.home_directory.join(&self.current_directory)) {
-            Ok(result) => result,
-            Err(e) => panic!("{}", e),
-        };
+    fn ls(&self) -> io::Result<MessageSender> {
+        let paths = fs::read_dir(&self.home_directory.join(&self.current_directory))?;
 
         // Joins the paths in the the iterator paths with "\n" 
         let output: String = paths
@@ -128,11 +139,8 @@ impl ConnectionHandler {
             .map(|x| x.unwrap().path().to_string_lossy().into_owned())
             .collect::<Vec<String>>()
             .join("\n");
-
-            let success_message: MessageSender = self.success_message(Some(output));
-            success_message.send_message()?;
         
-        return Ok(());
+        return Ok(self.success_message(Some(output)));
     }
 
     // Creates a MessageSender of MessageKind::Success
@@ -141,12 +149,12 @@ impl ConnectionHandler {
             Some(string) => string,
             None => "".to_string(),
         };
-        return MessageSender::new(MessageKind::Success, message_string, None, &self.tcpstream);
+        return MessageSender::new(MessageKind::Success, message_string, None);
     }
 
     // Creates a MessageSender of MessageKind::Error
     fn error_message(&self, message_string: String) -> MessageSender {
-        return MessageSender::new(MessageKind::Error, message_string, None, &self.tcpstream);
+        return MessageSender::new(MessageKind::Error, message_string, None);
     }
 
 }
