@@ -73,6 +73,7 @@ impl MessageSender{
                 while length > 0 {
                     let buffer = file.fill_buf()?;
                     length = buffer.len();
+                    writer.write_all(&buffer)?;
                     file.consume(length);
                 }
             }
@@ -141,7 +142,14 @@ impl MessageReceiver{
         let argument_string = from_utf8(&argument_bytes).unwrap().to_string();
 
         // Construct self
+        println!("message size: {}", payload_size);
+        println!("command: {}", headers[8]);
+        println!("arguments size: {}", argument_size);
+        println!("arguments: {}", argument_string);
+        
         payload_size -= 10 + argument_size as u64;
+        println!("payload size: {}", payload_size);
+
         let message_receiver: MessageReceiver = Self {
             command: command,
             arguments: argument_string,
@@ -164,12 +172,13 @@ impl MessageReceiver{
         let file = File::create(file_path).unwrap();
         let mut writer = BufWriter::new(file); 
         let mut byte_count: u64 = 0;
-        while byte_count != self.payload_size {
+        while byte_count < self.payload_size {
             let buffer = tcpstream.fill_buf()?;
             writer.write(buffer)?;
             let length = buffer.len();
             tcpstream.consume(length);
             byte_count += length as u64;
+            print!("{}\t", byte_count);
         }
         writer.flush()?;
         return Ok(())

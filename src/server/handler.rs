@@ -23,7 +23,7 @@ impl ConnectionHandler {
         };
         let welcome_message = MessageSender::new(
             MessageKind::Success,
-            "Welcome to parfs!".to_string(),
+            handler.home_directory.to_str().unwrap().to_string(),
             None,
         );
         let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&handler.tcpstream);
@@ -32,13 +32,16 @@ impl ConnectionHandler {
         if let Err(e) = final_msg_result{
             println!("{}", e);
         }
-        
+
         return Ok(handler);
     }
 
     // main loop of the handler
     pub fn handle_connection(&mut self) {
         loop {
+
+            println!("New iteration of handle_connection()...");
+
             // Creates a MessageReceiver and waits for incoming messages
             let tcp_reader: BufReader<&TcpStream> = BufReader::new(&self.tcpstream);
             let client_request: MessageReceiver = match MessageReceiver::new(tcp_reader) {
@@ -58,10 +61,8 @@ impl ConnectionHandler {
                 MessageKind::Mkdir => self.mkdir(arguments),
                 MessageKind::Cd => self.cd(arguments),
                 MessageKind::Ls => self.ls(),
+                MessageKind::Down => self.down(arguments),
                 // MessageKind::Up => {
-
-                // },
-                // MessageKind::Down => {
 
                 // },
 
@@ -121,7 +122,9 @@ impl ConnectionHandler {
         // Sends success message if path exists
         if Path::new(&self.home_directory).join(&new_path).exists() {
             self.current_directory = new_path;
-            return Ok(self.success_message(None));
+            let mut full_path = PathBuf::from(&self.home_directory);
+            full_path.push(&self.current_directory);
+            return Ok(self.success_message(Some(full_path.to_str().unwrap().to_string())));
         }
         
         // Sends error message if file does not exists
@@ -141,6 +144,24 @@ impl ConnectionHandler {
             .join("\n");
         
         return Ok(self.success_message(Some(output)));
+    }
+
+    fn down(&self, file_name: String) -> io::Result<MessageSender> {
+        let mut file_path: PathBuf = PathBuf::from(&self.home_directory);
+        file_path.push(&self.current_directory);
+        file_path.push(file_name.as_str());
+        println!("{}", file_path.to_str().unwrap());
+        let file_sender: MessageSender = MessageSender::new(
+            MessageKind::File,
+            "".to_string(),
+            Some(file_path),
+        );
+
+        match file_sender.send_message(BufWriter::new(&self.tcpstream)){
+            Ok(()) => Ok(self.success_message(None)),
+            Err(..) => Ok(self.error_message("File could not be sent out from server!".to_string())),
+        }
+
     }
 
     // Creates a MessageSender of MessageKind::Success

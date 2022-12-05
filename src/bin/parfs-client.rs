@@ -16,7 +16,13 @@ fn main() {
   
   while !quit {
     // Print out prompt
-    print!("parfs-client>");
+    println!("");
+    if conn.cwd.is_empty() {
+      print!("parfs-client>");
+    }
+    else{
+      print!("{}>", &conn.cwd);
+    }
     let flush = io::stdout().flush();
     if let Err(err) = flush {
       eprintln!("{}", err);

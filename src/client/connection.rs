@@ -1,4 +1,4 @@
-use std::io::Error;
+use std::{io::Error, path::PathBuf};
 use regex::Regex;
 use crate::client::utilities::*;
 use std::{
@@ -63,14 +63,17 @@ impl Connection {
 
     // "cd" command
     if let Command::Cd = command_type{
-      let ok: () = self.cd(&tokens)?;
-      if ok == () {
-        self.cwd = tokens[1].to_string();
-      }
+      self.cd(&tokens)?;
     }
 
+    // "ls" command
     else if let Command::Ls = command_type{
       self.ls(&tokens)?;
+    }
+
+    // "down" command
+    else if let Command::Down = command_type{
+      self.down(&tokens)?;
     }
 
     return Ok(());
@@ -127,10 +130,11 @@ impl Connection {
       }
     };
 
-    // Check welcome message from server and print it out
+    // Read in home directory on server and store it
     match confirmation_message.command {
       MessageKind::Success => {
-        println!("{}", confirmation_message.arguments);
+        self.cwd = confirmation_message.arguments;
+        println!("Welcome to parfs!");
         return Ok(stream);
       },
       _ => {
@@ -175,8 +179,9 @@ impl Connection {
       }
     };
 
-    match  confirmation_message.command {
+    match confirmation_message.command {
       MessageKind::Success => {
+        self.cwd = confirmation_message.arguments;
         return Ok(());
       },
       MessageKind::Error => {
@@ -233,6 +238,85 @@ impl Connection {
       MessageKind::Error => {
         println!("{}", &confirmation_message.arguments);
         return Ok(());
+      },
+      _ => Err(ERR_SERVER.to_string()),
+    }
+
+  }
+
+  fn down(&self, tokens: &Vec<&str>) -> Result<(), String> {
+    let help: String = 
+    "Help:
+    \tdown [server-file] [local-dest]
+    \t[server-file]: 'quicksort.pdf'
+    \t[local-dest]: '/home/user/parfs-receive/'".to_string();
+    
+    // currently only supports non-spaced file paths
+    // TODO: support quotation file paths
+    if tokens.len() != 3 {
+      return Err(help);
+    }
+    let tcp_stream: &TcpStream = match &self.stream {
+      Some(tcp) => &tcp,
+      None => {
+        return Err(ERR_NO_STREAM.to_string());
+      }
+    };
+
+    // Sends down request
+    let message_sender: MessageSender = MessageSender::new(
+      MessageKind::Down,
+      tokens[1].to_string(),
+      None,
+    );
+    let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&tcp_stream);
+    let ms_result: Result<(), Error> = message_sender.send_message(tcp_writer);
+    if ms_result.is_err(){
+      return Err(ERR_NON_SERVER.to_string());
+    }
+
+    // Receives incoming payload
+    let tcp_reader: BufReader<&TcpStream> = BufReader::new(&tcp_stream);
+    let payload_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+      Ok(server_message) => server_message,
+      Err(e) => {
+        return Err(e.to_string());
+      }
+    };
+
+    // Double check to see message is of MessageKind::File
+    match payload_message.command{
+      MessageKind::Error => return Err(payload_message.arguments),
+      MessageKind::File => (),
+      _ => return Err(ERR_SERVER.to_string()),
+    };
+
+    // Start writing to local destination
+    let write_result = 
+      payload_message.write_to(
+        BufReader::new(&tcp_stream),
+        PathBuf::from(tokens[2]),
+      );
+    if write_result.is_err() {
+      return Err("Unable to write to local-dest. Is it a valid path?".to_string());
+    }
+
+    // Process final MessageKind::Success
+    let tcp_reader: BufReader<&TcpStream> = BufReader::new(tcp_stream);
+    let confirmation_message: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+      Ok(server_message) => server_message,
+      Err(_) => {
+        return Err(ERR_NON_SERVER.to_string());
+      }
+    };
+
+    match confirmation_message.command {
+      MessageKind::Success => {
+        Ok(())
+      },
+      MessageKind::Error => {
+        println!("{}", &confirmation_message.arguments);
+        Ok(())
       },
       _ => Err(ERR_SERVER.to_string()),
     }
