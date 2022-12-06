@@ -2,10 +2,12 @@ use std::{
     fs, io::{self},
     io::{BufReader, BufWriter, Error, ErrorKind},
     net::TcpStream,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, sync::mpsc::Receiver,
 };
 
 use crate::message::*;
+use crate::server::utilities::*;
+use crate::utilities::format_error;
 
 pub struct ConnectionHandler {
     tcpstream: TcpStream,
@@ -60,10 +62,7 @@ impl ConnectionHandler {
                 MessageKind::Cd => self.cd(arguments),
                 MessageKind::Ls => self.ls(),
                 MessageKind::Down => self.down(arguments),
-                // MessageKind::Up => {
-
-                // },
-
+                MessageKind::Up => self.up(arguments),
                 //place holder
                 _ => Err(Error::new(ErrorKind::Other, "Message type couldn't be found :<")),
             };
@@ -115,8 +114,9 @@ impl ConnectionHandler {
             );
         }
 
+        new_path = Path::new(&self.home_directory).join(new_path);
         // Sends success message if path exists
-        if Path::new(&self.home_directory).join(&new_path).exists() {
+        if new_path.exists() {
             self.current_directory = new_path;
             let mut full_path = PathBuf::from(&self.home_directory);
             full_path.push(&self.current_directory);
@@ -125,7 +125,7 @@ impl ConnectionHandler {
         
         // Sends error message if file does not exists
         else {
-            return Ok(self.error_message("File path does not exist!".to_string()));
+            return Ok(self.error_message(format_error(ERR_NO_PATH,new_path.to_str().unwrap())));
         }
     }
 
@@ -147,31 +147,38 @@ impl ConnectionHandler {
         file_path.push(&self.current_directory);
         file_path.push(file_name.as_str());
         println!("{}", file_path.to_str().unwrap());
-        let file_sender: MessageSender = MessageSender::new(
-            MessageKind::File,
-            "".to_string(),
-            Some(file_path),
-        );
+        if file_path.exists() {
 
-        return Ok(file_sender);
-        // match file_sender.send_message(BufWriter::new(&self.tcpstream)){
-        //     Ok(()) => Ok(self.success_message(None)),
-        //     Err(..) => Ok(self.error_message("File could not be sent out from server!".to_string())),
-        // }
+            let file_sender: MessageSender = MessageSender::new(
+                MessageKind::File,
+                "".to_string(),
+                Some(file_path),
+            );
+
+            return Ok(file_sender);
+        } else {
+            return Ok(self.error_message(format_error(ERR_NO_PATH,file_path.to_str().unwrap())));
+        }
     }
 
+    // For the server to handle an up, it will first send a success to the client
+    // to indicate that it is ready to receive a file.
     fn up(&self, file_name: String) -> io::Result<MessageSender> {
         let mut file_path: PathBuf = PathBuf::from(&self.home_directory);
         file_path.push(&self.current_directory);
         file_path.push(file_name.as_str());
-        println!("{}", file_path.to_str().unwrap());
-        let file_sender: MessageSender = MessageSender::new(
-            MessageKind::File,
-            "".to_string(),
-            Some(file_path),
-        );
-
-        return Ok(file_sender);
+        println!("Ready to receive {:?}",file_path);
+        self.success_message(None).send_message(&self.tcpstream)?;
+        let file_message: MessageReceiver = match MessageReceiver::new(&self.tcpstream) {
+            Ok(message) => message,
+            Err(e) => panic!("message forming failed :( {}", e),
+        };
+        if file_message.command != MessageKind::File {
+            panic!("Received wrong message kind from client!");
+        } else {
+            file_message.write_to(&self.tcpstream, file_path)?;
+        };
+        return Ok(self.success_message(None));
     }
 
     // Creates a MessageSender of MessageKind::Success

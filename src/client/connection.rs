@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::message::*;
+use crate::utilities::format_error;
 
 pub struct Connection {
     pub stream: Option<TcpStream>,
@@ -60,19 +61,15 @@ impl Connection {
             return Err(ERR_NO_STREAM.to_string());
         }
 
-        // "cd" command
-        if let Command::Cd = command_type {
-            self.cd(&tokens)?;
-        }
-        // "ls" command
-        else if let Command::Ls = command_type {
-            self.ls(&tokens)?;
-        }
-        // "down" command
-        else if let Command::Down = command_type {
-            self.down(&tokens)?;
+        match command_type {
+            Command::Cd => self.cd(&tokens)?,
+            Command::Ls => self.ls(&tokens)?,
+            Command::Down => self.down(&tokens)?,
+            Command::Up => self.up(&tokens)?,
+            _ => return Err("Not implemented".to_string()),
         }
 
+    
         return Ok(());
     }
 
@@ -276,6 +273,75 @@ impl Connection {
         match payload_message.write_to(tcp_stream, PathBuf::from(tokens[2])) {
             Err(e) => return Err(e.to_string()),
             Ok(()) => Ok(()),
+        }
+    }
+
+    fn up(&self, tokens: &Vec<&str>) -> Result<(), String> {
+        let help: String = "Help:
+    \tup [local-file] [server-file]
+    \t[local-file]: 'quicksort.pdf'
+    \t[server-file]: 'quicksort.pdf'"
+            .to_string();
+
+        let tcp_stream: &TcpStream = match &self.stream {
+            Some(tcp) => &tcp,
+            None => {
+                return Err(ERR_NO_STREAM.to_string());
+            }
+        };
+        if tokens.len() != 3 {
+            return Err(help);
+        }
+
+        let mut file_path: PathBuf = PathBuf::from(tokens[1]);
+        if !file_path.exists() {
+            return Err(format_error(ERR_NO_PATH, file_path.to_str().unwrap()));
+        }
+        // Sends down request
+        let message_sender: MessageSender =
+            MessageSender::new(MessageKind::Up, tokens[2].to_string(), None);
+        let ms_result: Result<(), Error> = message_sender.send_message(&tcp_stream);
+        if ms_result.is_err() {
+            return Err(ERR_NON_SERVER.to_string());
+        }
+        // Receives incoming server message
+        let server_message: MessageReceiver = match MessageReceiver::new(tcp_stream) {
+            Ok(server_message) => server_message,
+            Err(e) => {
+                return Err(e.to_string());
+            }
+        };
+        // Double check to see message is of MessageKind::Success
+        match server_message.command {
+            MessageKind::Error => return Err(server_message.arguments),
+            MessageKind::Success => (),
+            _ => return Err(ERR_SERVER.to_string()),
+        };
+
+        //  Sending the file
+        let file_message = MessageSender::new(MessageKind::File, "".to_string(), Some(file_path));
+        match file_message.send_message(&tcp_stream) {
+            Ok(_) => {},
+            Err(e) => return Err(ERR_NON_SERVER.to_string()),
+        }
+
+        // Check confirmation message
+        let confirmation_message: MessageReceiver = match MessageReceiver::new(&tcp_stream) {
+            Ok(server_message) => server_message,
+            Err(_) => {
+                return Err(ERR_NON_SERVER.to_string());
+            }
+        };
+
+        match confirmation_message.command {
+            MessageKind::Success => {
+                return Ok(());
+            }
+            MessageKind::Error => {
+                println!("{}", &confirmation_message.arguments);
+                return Ok(());
+            }
+            _ => Err(ERR_SERVER.to_string()),
         }
     }
 

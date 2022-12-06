@@ -10,7 +10,7 @@ const BUFFER_SIZE: usize = 1048576;
 
 // Refactor this rubbish with proper error handling, use custom types instead of io
 // https://www.sheshbabu.com/posts/rust-error-handling/
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageKind {
     Connect = 001,
     Login = 002,
@@ -157,7 +157,7 @@ impl MessageReceiver {
 
     // Writes to a file_path
     pub fn write_to(
-        &self,
+        self,
         tcpstream: &TcpStream,
         file_path: PathBuf,
     ) -> io::Result<()> {
