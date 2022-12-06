@@ -26,8 +26,7 @@ impl ConnectionHandler {
             handler.home_directory.to_str().unwrap().to_string(),
             None,
         );
-        let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&handler.tcpstream);
-        let final_msg_result = welcome_message.send_message(tcp_writer);
+        let final_msg_result = welcome_message.send_message(&handler.tcpstream);
 
         if let Err(e) = final_msg_result{
             println!("{}", e);
@@ -73,15 +72,13 @@ impl ConnectionHandler {
             // Err() will be errors propagated by ? in other parts of the function
             let final_msg_result : Result<(), Error> = match result{
                 Ok(message) => {
-                    let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&self.tcpstream);
-                    message.send_message(tcp_writer)
+                    message.send_message(&self.tcpstream)
                 },
                 Err(e) => {
                     println!("{}", e);
                     let generic_server_err: String = "There was an error at the server. Please try again!".to_string();
                     let error_message: MessageSender = self.error_message(generic_server_err);
-                    let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&self.tcpstream);
-                    error_message.send_message(tcp_writer)
+                    error_message.send_message(&self.tcpstream)
                 },
             };
 
@@ -161,7 +158,20 @@ impl ConnectionHandler {
         //     Ok(()) => Ok(self.success_message(None)),
         //     Err(..) => Ok(self.error_message("File could not be sent out from server!".to_string())),
         // }
+    }
 
+    fn up(&self, file_name: String) -> io::Result<MessageSender> {
+        let mut file_path: PathBuf = PathBuf::from(&self.home_directory);
+        file_path.push(&self.current_directory);
+        file_path.push(file_name.as_str());
+        println!("{}", file_path.to_str().unwrap());
+        let file_sender: MessageSender = MessageSender::new(
+            MessageKind::File,
+            "".to_string(),
+            Some(file_path),
+        );
+
+        return Ok(file_sender);
     }
 
     // Creates a MessageSender of MessageKind::Success

@@ -158,8 +158,7 @@ impl Connection {
         // Sends cd request
         let message_sender: MessageSender =
             MessageSender::new(MessageKind::Cd, tokens[1].to_string(), None);
-        let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&tcp_stream);
-        let ms_result: Result<(), Error> = message_sender.send_message(tcp_writer);
+        let ms_result: Result<(), Error> = message_sender.send_message(tcp_stream);
         if ms_result.is_err() {
             return Err(ERR_NON_SERVER.to_string());
         }
@@ -205,14 +204,13 @@ impl Connection {
         // Sends ls request
         let message_sender: MessageSender =
             MessageSender::new(MessageKind::Ls, "".to_string(), None);
-        let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&tcp_stream);
-        let ms_result: Result<(), Error> = message_sender.send_message(tcp_writer);
+        let ms_result: Result<(), Error> = message_sender.send_message(&tcp_stream);
         if ms_result.is_err() {
             return Err(ERR_NON_SERVER.to_string());
         }
 
         // Read in request output from server
-        let confirmation_message: MessageReceiver = match MessageReceiver::new(tcp_stream) {
+        let confirmation_message: MessageReceiver = match MessageReceiver::new(&tcp_stream) {
             Ok(server_message) => server_message,
             Err(_) => {
                 return Err(ERR_NON_SERVER.to_string());
@@ -254,8 +252,7 @@ impl Connection {
         // Sends down request
         let message_sender: MessageSender =
             MessageSender::new(MessageKind::Down, tokens[1].to_string(), None);
-        let tcp_writer: BufWriter<&TcpStream> = BufWriter::new(&tcp_stream);
-        let ms_result: Result<(), Error> = message_sender.send_message(tcp_writer);
+        let ms_result: Result<(), Error> = message_sender.send_message(&tcp_stream);
         if ms_result.is_err() {
             return Err(ERR_NON_SERVER.to_string());
         }

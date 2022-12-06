@@ -63,7 +63,7 @@ impl MessageSender {
     }
 
     // Blocking function!!!
-    pub fn send_message(self, mut writer: BufWriter<&TcpStream>) -> io::Result<()> {
+    pub fn send_message(self, mut writer: &TcpStream) -> io::Result<()> {
         println!("Sent message called once");
         // Generate message and send headers
         let (headers, payload) = self.generate_message()?;
@@ -95,7 +95,7 @@ impl MessageSender {
             Some(file_path) => {
                 let file = File::open(file_path)?;
                 payload_length = file.metadata()?.len();
-                reader = Some(BufReader::new(file));
+                reader = Some(BufReader::with_capacity(BUFFER_SIZE,file));
             }
             None => {}
         }
