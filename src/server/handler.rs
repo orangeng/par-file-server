@@ -43,8 +43,7 @@ impl ConnectionHandler {
             println!("New iteration of handle_connection()...");
 
             // Creates a MessageReceiver and waits for incoming messages
-            let tcp_reader: BufReader<&TcpStream> = BufReader::new(&self.tcpstream);
-            let client_request: MessageReceiver = match MessageReceiver::new(tcp_reader) {
+            let client_request: MessageReceiver = match MessageReceiver::new(&self.tcpstream) {
                 Ok(message) => message,
                 Err(e) => panic!("message forming failed :( {}", e),
             };
@@ -157,10 +156,11 @@ impl ConnectionHandler {
             Some(file_path),
         );
 
-        match file_sender.send_message(BufWriter::new(&self.tcpstream)){
-            Ok(()) => Ok(self.success_message(None)),
-            Err(..) => Ok(self.error_message("File could not be sent out from server!".to_string())),
-        }
+        return Ok(file_sender);
+        // match file_sender.send_message(BufWriter::new(&self.tcpstream)){
+        //     Ok(()) => Ok(self.success_message(None)),
+        //     Err(..) => Ok(self.error_message("File could not be sent out from server!".to_string())),
+        // }
 
     }
 

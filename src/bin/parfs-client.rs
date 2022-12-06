@@ -1,9 +1,9 @@
 extern crate parfs;
-use std::{io::{self, Write}, process::exit};
+use std::{io::{self, Write}, process::exit, env};
 use parfs::client::connection::Connection;
 
 fn main() {
-
+  let args: Vec<String> = env::args().collect();
   // Indicator for user requested quit
   let mut quit: bool = false;
 
@@ -13,6 +13,16 @@ fn main() {
     addr: "".to_string(),
     cwd: "".to_string(),
   };
+
+  // If server address was provided in program args, try to connect
+  if args.len() > 1 {
+    let connect_instruction = vec!["connect", &args[1]];
+    match conn.process_command(&connect_instruction) {
+      Ok(_) => println!("Connected"),
+      Err(e) => println!("{e}"),
+    }
+  }
+
   
   while !quit {
     // Print out prompt
