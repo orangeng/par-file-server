@@ -64,7 +64,7 @@ impl MessageSender {
 
     // Blocking function!!!
     pub fn send_message(self, mut writer: &TcpStream) -> io::Result<()> {
-        println!("Sent message called once");
+        // println!("Sent message called once");
         // Generate message and send headers
         let (headers, payload) = self.generate_message()?;
         writer.write_all(&headers)?;
@@ -75,7 +75,7 @@ impl MessageSender {
                 let mut length = 1;
                 while length > 0 {
                     let buffer = file.fill_buf()?;
-                    println!("File to be sent: {:?}",buffer);
+                    // println!("File to be sent: {:?}",buffer);
                     length = buffer.len();
                     writer.write_all(&buffer)?;
                     file.consume(length);
@@ -136,16 +136,15 @@ impl MessageReceiver {
         let mut argument_bytes: Vec<u8> = vec![0u8; argument_size as usize];
         tcpstream.read_exact(&mut argument_bytes)?;
         let argument_string = from_utf8(&argument_bytes).unwrap().to_string();
+        payload_size -= HEADER_SIZE as u64 + argument_size as u64;
+
+        // println!("message size: {}", payload_size);
+        // println!("command: {}", headers[8]);
+        // println!("arguments size: {}", argument_size);
+        // println!("arguments: {}", argument_string);
+        // println!("payload size: {}", payload_size);
 
         // Construct self
-        println!("message size: {}", payload_size);
-        println!("command: {}", headers[8]);
-        println!("arguments size: {}", argument_size);
-        println!("arguments: {}", argument_string);
-
-        payload_size -= HEADER_SIZE as u64 + argument_size as u64;
-        println!("payload size: {}", payload_size);
-
         let message_receiver: MessageReceiver = Self {
             command: command,
             arguments: argument_string,
@@ -167,16 +166,16 @@ impl MessageReceiver {
         let mut reader = BufReader::with_capacity(BUFFER_SIZE, tcpstream );
         let capacity = reader.capacity() as u64;
         while byte_count < self.payload_size {
-            println!("Waiting for payload..");
+            // println!("Waiting for payload..");
             if self.payload_size - byte_count < capacity {
                 let remaining_bytes = self.payload_size - byte_count;
                 let mut buffer = vec![0u8; (remaining_bytes).try_into().unwrap()];
                 reader.read_exact(&mut buffer)?;
-                println!("Received bytes: {:?}",buffer);
-                println!("About to write");
+                // println!("Received bytes: {:?}",buffer);
+                // println!("About to write");
                 writer.write(&buffer)?;
                 writer.flush()?;
-                println!("Done writing");
+                // println!("Done writing");
                 return Ok(());
             } else {
                 let buffer = reader.fill_buf()?;
@@ -184,7 +183,7 @@ impl MessageReceiver {
                 let length = buffer.len();
                 reader.consume(length);
                 byte_count += length as u64;
-                print!("{}\t", byte_count);
+                // print!("{}\t", byte_count);
             };
         }
         writer.flush()?;
