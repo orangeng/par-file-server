@@ -133,16 +133,17 @@ impl <'a> ConnectionHandler <'a>{
             );
         }
 
-        if Path::new(&self.current_directory).join(&new_path).exists(){
-            new_path = Path::canonicalize(&Path::new(&self.current_directory).join(new_path))?;
+        new_path = Path::new(&self.current_directory).join(&new_path);
+        if new_path.exists() && new_path.is_dir(){
             // Sends success message if path exists
+            new_path = Path::canonicalize(&Path::new(&self.current_directory).join(new_path))?;
             self.current_directory = new_path;
             let full_path = PathBuf::from(&self.current_directory);
-            return Ok(self.success_message(Some(full_path.to_str().unwrap().to_string())));
+            return Ok(self.success_message(Some(full_path.to_str().expect("Is this failing").to_string())));
         }
         // Sends error message if file does not exists
         else {
-            return Ok(self.error_message(format_error(ERR_NO_PATH, new_path.to_str().unwrap())));
+            return Ok(self.error_message(format_error(ERR_NO_DIR,new_path.to_str().expect("Is this fialing?"))));
         }
     }
 

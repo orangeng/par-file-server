@@ -4,11 +4,10 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::str::from_utf8;
-use std::sync::Arc;
+use std::sync::{Arc, RwLockReadGuard};
 
+use crate::message::{MessageKind, BUFFER_SIZE, HEADER_SIZE};
 use crate::server::fsrw_mutex::*;
-use crate::message::{BUFFER_SIZE, HEADER_SIZE, MessageKind};
-
 
 // DO NOT RELY ON MESSAGE SENDER TO VALIDATE FILEPATHS. ALL FILEPATHS ARE ASSUMED TO BE VALID.
 
@@ -35,7 +34,7 @@ impl MessageSender {
     pub fn send_message(self, mut writer: &TcpStream, fsrw_mutex: &FsrwMutex) -> io::Result<()> {
         // println!("Sent message called once");
         // Generate message and send headers
-        let headers  = self.generate_headers()?;
+        let headers = self.generate_headers()?;
         writer.write_all(&headers)?;
 
         // Send payload if any
@@ -45,41 +44,39 @@ impl MessageSender {
                 let file_dict = match fsrw_mutex.file_dict.lock() {
                     Ok(guard) => guard,
                     // Need to handle this properly
-                    Err(poisoned) => {panic!("file_dict poisoned: {}",poisoned)}, 
+                    Err(poisoned) => {
+                        panic!("file_dict poisoned: {}", poisoned)
+                    }
                 };
                 let file_lock = acquire_file_rwlock(file_dict, file_path.to_path_buf());
-                // file_dict is automatically unlocked when acquire_file_rwlock consumes it 
+                // file_dict is automatically unlocked when acquire_file_rwlock consumes it
 
                 // Lock rwlock as a reader
                 let file = match file_lock.read() {
                     Ok(guard) => guard,
                     // Need to handle this properly
-                    Err(poisoned) => {panic!("file_dict poisoned: {}",poisoned)}, 
+                    Err(poisoned) => {
+                        panic!("file_dict poisoned: {}", poisoned)
+                    }
                 };
-                let mut file_reader = BufReader::with_capacity(BUFFER_SIZE, &*file);
 
-                // Send file
-                let mut length = 1;
-                while length > 0 {
-                    let buffer = file_reader.fill_buf()?;
-                    // println!("File to be sent: {:?}",buffer);
-                    length = buffer.len();
-                    writer.write_all(&buffer)?;
-                    file_reader.consume(length);
-                }
-                
-                // Release file rwlock and drop file_lock
-                drop(file);
+                // Send here
+                let send_result = critical_region_send(file, writer);
+                // critical_region_send drops the rwlock to the file but we also need to release the atomic reference counter file_lock regardless of write result
                 drop(file_lock);
-                
+
                 // Update file_dict that file rwlock was unlocked
                 // Lock file dict
                 let file_dict = match fsrw_mutex.file_dict.lock() {
                     Ok(guard) => guard,
                     // Need to handle this properly
-                    Err(poisoned) => {panic!("file_dict poisoned: {}",poisoned)}, 
+                    Err(poisoned) => {
+                        panic!("file_dict poisoned: {}", poisoned)
+                    }
                 };
                 release_file_rwlock(file_dict, file_path.to_path_buf());
+
+                return send_result;
             }
             None => {}
         }
@@ -108,4 +105,19 @@ impl MessageSender {
         headers.extend_from_slice(argument_bytes);
         Ok(headers)
     }
+}
+
+fn critical_region_send(file: RwLockReadGuard<File>, mut writer: &TcpStream) -> io::Result<()> {
+    let mut file_reader = BufReader::with_capacity(BUFFER_SIZE, &*file);
+
+    // Send file
+    let mut length = 1;
+    while length > 0 {
+        let buffer = file_reader.fill_buf()?;
+        // println!("File to be sent: {:?}",buffer);
+        length = buffer.len();
+        writer.write_all(&buffer)?;
+        file_reader.consume(length);
+    }
+    return Ok(());
 }

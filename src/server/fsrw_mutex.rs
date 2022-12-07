@@ -24,6 +24,7 @@ impl FsrwMutex {
 
 // If the file_path exists, return a rwlock pointing to that File.
 // Otherwise, create that File and return a rwlock pointing to it.
+// The path must be valid!
 pub fn acquire_file_rwlock<'a>(mut file_dict: MutexGuard<HashMap<PathBuf,FileLock>>, file_path: PathBuf) -> Arc<RwLock<File>> {
     match file_dict.get_mut(&file_path) {
         Some(file_lock) => {
@@ -51,7 +52,7 @@ pub fn release_file_rwlock(mut file_dict: MutexGuard<HashMap<PathBuf,FileLock>>,
         Some(file_lock) => {
             file_lock.threads_accessing -= 1;
             if file_lock.threads_accessing == 0 {
-                println!("{}",Arc::strong_count(&file_lock.lock));
+                // println!("{}",Arc::strong_count(&file_lock.lock));
                 assert!(Arc::strong_count(&file_lock.lock) == 1);
                 file_dict.remove(&file_path);
             };
