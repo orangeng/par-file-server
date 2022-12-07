@@ -3,6 +3,7 @@ use std::{net::TcpListener, process::exit};
 use std::io::Error;
 use std::env;
 use std::path::PathBuf;
+use parfs::server::fsrw_mutex::FsrwMutex;
 use parfs::server::handler::ConnectionHandler;
 
 fn main() {
@@ -22,11 +23,14 @@ fn main() {
     exit(1);
   }
   
+  // Initialize file system reader writer mutex
+  let fsrw_mutex: FsrwMutex = FsrwMutex::new();
+
   // Listens for incoming connection requests
   let listener: TcpListener = listener_result.unwrap();
   for stream in listener.incoming() {
     let stream = stream.unwrap();
-      let mut handle = ConnectionHandler::new(stream, home_folder.clone()).unwrap();
+      let mut handle = ConnectionHandler::new(stream, home_folder.clone(), &fsrw_mutex).unwrap();
       handle.handle_connection();
   }
   

@@ -5,8 +5,8 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::str::from_utf8;
 
-const HEADER_SIZE: usize = 13;
-const BUFFER_SIZE: usize = 1048576;
+pub const HEADER_SIZE: usize = 13;
+pub const BUFFER_SIZE: usize = 1048576;
 
 // Refactor this rubbish with proper error handling, use custom types instead of io
 // https://www.sheshbabu.com/posts/rust-error-handling/
@@ -160,7 +160,7 @@ impl MessageReceiver {
         tcpstream: &TcpStream,
         file_path: PathBuf,
     ) -> io::Result<()> {
-        let file = File::create(file_path).unwrap();
+        let file = File::create(file_path)?;
         let mut writer = BufWriter::new(file);
         let mut byte_count: u64 = 0;
         let mut reader = BufReader::with_capacity(BUFFER_SIZE, tcpstream );

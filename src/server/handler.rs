@@ -8,33 +8,39 @@ use std::{
     sync::mpsc::Receiver,
 };
 
-use crate::message::*;
+use crate::message::MessageKind;
+use crate::server::message::sender::MessageSender;
+use crate::server::message::receiver::MessageReceiver;
 use crate::server::utilities::*;
 use crate::utilities::format_error;
 
-pub struct ConnectionHandler {
+use super::fsrw_mutex::{FsrwMutex, self};
+
+pub struct ConnectionHandler <'a>{
     tcpstream: TcpStream,
     home_directory: PathBuf,
     current_directory: PathBuf,
     connection_dropped: bool,
+    fsrw_mutex: &'a FsrwMutex,
 }
 
-impl ConnectionHandler {
+impl <'a> ConnectionHandler <'a>{
     //make a new connectionhandler which encapsulates the connection from the server's side! wow!
-    pub fn new(stream: TcpStream, home_directory: PathBuf) -> io::Result<Self> {
+    pub fn new(stream: TcpStream, home_directory: PathBuf, fsrw_mutex: &'a FsrwMutex) -> io::Result<Self> {
         println!("New connection started");
         let handler = Self {
             tcpstream: stream,
-            home_directory,
-            current_directory: PathBuf::new(),
+            home_directory: home_directory.clone(),
+            current_directory: home_directory, 
             connection_dropped: false,
+            fsrw_mutex,
         };
         let welcome_message = MessageSender::new(
             MessageKind::Success,
             handler.home_directory.to_str().unwrap().to_string(),
             None,
         );
-        let final_msg_result = welcome_message.send_message(&handler.tcpstream);
+        let final_msg_result = welcome_message.send_message(&handler.tcpstream,&handler.fsrw_mutex);
 
         if let Err(e) = final_msg_result {
             println!("{}", e);
@@ -62,6 +68,7 @@ impl ConnectionHandler {
             println!("{}", &client_request.arguments);
 
             // Group of match statements to process different commands
+            // Validation of command is done within each command
             let message_kind: MessageKind = client_request.command;
             let arguments: String = client_request.arguments;
             let result: Result<MessageSender, Error> = match message_kind {
@@ -80,7 +87,7 @@ impl ConnectionHandler {
             // Ok() will be the MessageSender created by the individual functions, be it Success / Error
             // Err() will be errors propagated by ? in other parts of the function
             let final_msg_result: Result<(), Error> = match result {
-                Ok(message) => message.send_message(&self.tcpstream),
+                Ok(message) => message.send_message(&self.tcpstream, &self.fsrw_mutex),
                 Err(e) => {
                     if e.kind() == ErrorKind::UnexpectedEof {
                         self.exit();
@@ -90,7 +97,7 @@ impl ConnectionHandler {
                     let generic_server_err: String =
                         "There was an error at the server. Please try again!".to_string();
                     let error_message: MessageSender = self.error_message(generic_server_err);
-                    error_message.send_message(&self.tcpstream)
+                    error_message.send_message(&self.tcpstream, &self.fsrw_mutex)
                 }
             };
 
@@ -109,8 +116,7 @@ impl ConnectionHandler {
         }
 
         fs::create_dir(
-            Path::new(&self.home_directory)
-                .join(&self.current_directory)
+            Path::new(&self.current_directory)
                 .join(new_dir),
         )?;
         return Ok(self.success_message(None));
@@ -127,12 +133,11 @@ impl ConnectionHandler {
             );
         }
 
-        new_path = Path::new(&self.home_directory).join(new_path);
-        // Sends success message if path exists
-        if new_path.exists() {
+        if Path::new(&self.current_directory).join(&new_path).exists(){
+            new_path = Path::canonicalize(&Path::new(&self.current_directory).join(new_path))?;
+            // Sends success message if path exists
             self.current_directory = new_path;
-            let mut full_path = PathBuf::from(&self.home_directory);
-            full_path.push(&self.current_directory);
+            let full_path = PathBuf::from(&self.current_directory);
             return Ok(self.success_message(Some(full_path.to_str().unwrap().to_string())));
         }
         // Sends error message if file does not exists
@@ -142,7 +147,7 @@ impl ConnectionHandler {
     }
 
     fn ls(&self) -> io::Result<MessageSender> {
-        let paths = fs::read_dir(&self.home_directory.join(&self.current_directory))?;
+        let paths = fs::read_dir(&self.current_directory)?;
 
         // Joins the paths in the the iterator paths with "\n"
         let output: String = paths
@@ -155,8 +160,7 @@ impl ConnectionHandler {
     }
 
     fn down(&self, file_name: String) -> io::Result<MessageSender> {
-        let mut file_path: PathBuf = PathBuf::from(&self.home_directory);
-        file_path.push(&self.current_directory);
+        let mut file_path: PathBuf = PathBuf::from(&self.current_directory);
         file_path.push(file_name.as_str());
         println!("{}", file_path.to_str().unwrap());
         if file_path.exists() {
@@ -172,11 +176,22 @@ impl ConnectionHandler {
     // For the server to handle an up, it will first send a success to the client
     // to indicate that it is ready to receive a file.
     fn up(&mut self, file_name: String) -> io::Result<MessageSender> {
-        let mut file_path: PathBuf = PathBuf::from(&self.home_directory);
-        file_path.push(&self.current_directory);
+        let mut file_path: PathBuf = PathBuf::from(&self.current_directory);
         file_path.push(file_name.as_str());
+        
+        // Check if file to be written to is a file. If not, check if the parent is a directory. If not, send an error message.
+        if !file_path.is_file() {
+            if file_path.parent().is_none() {
+                return Ok(self.error_message(format_error(ERR_NO_PATH,file_path.to_str().unwrap())));
+            } else {
+                // pri));
+                if !file_path.parent().unwrap().is_dir() {
+                    return Ok(self.error_message(format_error(ERR_NO_PATH,file_path.to_str().unwrap())));
+                }
+            }
+        }
         println!("Ready to receive {:?}", file_path);
-        self.success_message(None).send_message(&self.tcpstream)?;
+        self.success_message(None).send_message(&self.tcpstream,&self.fsrw_mutex)?;
         let file_message = match self.receive_message(){
             Some(message) => message,
             None => return Err(Error::new(ErrorKind::UnexpectedEof,"Connection closed")),
@@ -184,7 +199,7 @@ impl ConnectionHandler {
         if file_message.command != MessageKind::File {
             panic!("Received wrong message kind from client!");
         } else {
-            file_message.write_to(&self.tcpstream, file_path)?;
+            file_message.write_to(&self.tcpstream, file_path,&self.fsrw_mutex)?;
         };
         return Ok(self.success_message(None));
     }
