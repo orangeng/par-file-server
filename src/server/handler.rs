@@ -9,14 +9,14 @@ use std::{
 };
 
 use crate::message::MessageKind;
-use crate::server::message::sender::MessageSender;
 use crate::server::message::receiver::MessageReceiver;
+use crate::server::message::sender::MessageSender;
 use crate::server::utilities::*;
 use crate::utilities::format_error;
 
-use super::fsrw_mutex::{FsrwMutex, self};
+use super::fsrw_mutex::{self, FsrwMutex};
 
-pub struct ConnectionHandler <'a>{
+pub struct ConnectionHandler<'a> {
     tcpstream: TcpStream,
     home_directory: PathBuf,
     current_directory: PathBuf,
@@ -24,23 +24,27 @@ pub struct ConnectionHandler <'a>{
     fsrw_mutex: &'a FsrwMutex,
 }
 
-impl <'a> ConnectionHandler <'a>{
+// To do:: Have a proper way to indicate when the connection is dropped
+
+impl<'a> ConnectionHandler<'a> {
     //make a new connectionhandler which encapsulates the connection from the server's side! wow!
-    pub fn new(stream: TcpStream, home_directory: PathBuf, fsrw_mutex: &'a FsrwMutex) -> io::Result<Self> {
+    pub fn new(
+        stream: TcpStream,
+        home_directory: PathBuf,
+        fsrw_mutex: &'a FsrwMutex,
+    ) -> io::Result<Self> {
         println!("New connection started");
         let handler = Self {
             tcpstream: stream,
             home_directory: home_directory.clone(),
-            current_directory: home_directory, 
+            current_directory: home_directory,
             connection_dropped: false,
             fsrw_mutex,
         };
-        let welcome_message = MessageSender::new(
-            MessageKind::Success,
-            handler.home_directory.to_str().unwrap().to_string(),
-            None,
-        );
-        let final_msg_result = welcome_message.send_message(&handler.tcpstream,&handler.fsrw_mutex);
+        let welcome_message =
+            MessageSender::new(MessageKind::Success, handler.get_display_path(&handler.current_directory), None);
+        let final_msg_result =
+            welcome_message.send_message(&handler.tcpstream, &handler.fsrw_mutex);
 
         if let Err(e) = final_msg_result {
             println!("{}", e);
@@ -115,16 +119,16 @@ impl <'a> ConnectionHandler <'a>{
                 .expect("This really shouldnt fail");
         }
 
-        fs::create_dir(
-            Path::new(&self.current_directory)
-                .join(new_dir),
-        )?;
+        let file_path = PathBuf::from(&self.current_directory).join(new_dir);
+        if self.is_valid_file(&file_path) {
+            return Ok(self.error_message(format_error(ERR_NO_DIR,&dir_name)))
+        }
+        fs::create_dir(file_path)?;
         return Ok(self.success_message(None));
     }
 
     fn cd(&mut self, path_name: String) -> io::Result<MessageSender> {
-        let mut new_path = PathBuf::from(path_name);
-        // TODO: implement some error checking for filename
+        let mut new_path = PathBuf::from(&path_name);
         if new_path.starts_with("/") {
             new_path = PathBuf::from(
                 new_path
@@ -134,26 +138,37 @@ impl <'a> ConnectionHandler <'a>{
         }
 
         new_path = Path::new(&self.current_directory).join(&new_path);
-        if new_path.exists() && new_path.is_dir(){
+        if self.is_valid_directory(&new_path) {
             // Sends success message if path exists
             new_path = Path::canonicalize(&Path::new(&self.current_directory).join(new_path))?;
             self.current_directory = new_path;
-            let full_path = PathBuf::from(&self.current_directory);
-            return Ok(self.success_message(Some(full_path.to_str().expect("Is this failing").to_string())));
+            return Ok(self.success_message(Some(self.get_display_path(&self.current_directory))));
         }
         // Sends error message if file does not exists
         else {
-            return Ok(self.error_message(format_error(ERR_NO_DIR,new_path.to_str().expect("Is this fialing?"))));
+            return Ok(self.error_message(format_error(
+                ERR_NO_DIR,
+                &path_name,
+            )));
         }
     }
 
     fn ls(&self) -> io::Result<MessageSender> {
         let paths = fs::read_dir(&self.current_directory)?;
 
-        // Joins the paths in the the iterator paths with "\n"
+        // Joins the paths in the the iterator paths with "\n". If the entry is a directory, append a "/" to the end
         let output: String = paths
             .into_iter()
-            .map(|x| x.unwrap().path().to_string_lossy().into_owned())
+            .map(|x| -> String {
+                let path = x.unwrap().path();
+                if path.is_dir() {
+                    let mut new_str = String::from(path.iter().last().unwrap().to_str().unwrap());
+                    new_str.push_str("/");
+                    new_str
+                } else {
+                    String::from(path.iter().last().unwrap().to_str().unwrap())
+                }
+            })
             .collect::<Vec<String>>()
             .join("\n");
 
@@ -164,13 +179,13 @@ impl <'a> ConnectionHandler <'a>{
         let mut file_path: PathBuf = PathBuf::from(&self.current_directory);
         file_path.push(file_name.as_str());
         println!("{}", file_path.to_str().unwrap());
-        if file_path.exists() {
+        if self.is_valid_file(&file_path) {
             let file_sender: MessageSender =
                 MessageSender::new(MessageKind::File, "".to_string(), Some(file_path));
 
             return Ok(file_sender);
         } else {
-            return Ok(self.error_message(format_error(ERR_NO_PATH, file_path.to_str().unwrap())));
+            return Ok(self.error_message(format_error(ERR_NO_PATH, &file_name)));
         }
     }
 
@@ -179,28 +194,32 @@ impl <'a> ConnectionHandler <'a>{
     fn up(&mut self, file_name: String) -> io::Result<MessageSender> {
         let mut file_path: PathBuf = PathBuf::from(&self.current_directory);
         file_path.push(file_name.as_str());
-        
+
         // Check if file to be written to is a file. If not, check if the parent is a directory. If not, send an error message.
-        if !file_path.is_file() {
+        if !self.is_valid_file(&file_path) {
             if file_path.parent().is_none() {
-                return Ok(self.error_message(format_error(ERR_NO_PATH,file_path.to_str().unwrap())));
+                return Ok(
+                    self.error_message(format_error(ERR_NO_PATH,&file_name)) 
+                );
             } else {
-                // pri));
-                if !file_path.parent().unwrap().is_dir() {
-                    return Ok(self.error_message(format_error(ERR_NO_PATH,file_path.to_str().unwrap())));
+                if !self.is_valid_directory(&PathBuf::from(file_path.parent().unwrap())){
+                    return Ok(
+                        self.error_message(format_error(ERR_NO_PATH, &file_name))
+                    );
                 }
             }
         }
         println!("Ready to receive {:?}", file_path);
-        self.success_message(None).send_message(&self.tcpstream,&self.fsrw_mutex)?;
-        let file_message = match self.receive_message(){
+        self.success_message(None)
+            .send_message(&self.tcpstream, &self.fsrw_mutex)?;
+        let file_message = match self.receive_message() {
             Some(message) => message,
-            None => return Err(Error::new(ErrorKind::UnexpectedEof,"Connection closed")),
+            None => return Err(Error::new(ErrorKind::UnexpectedEof, "Connection closed")),
         };
         if file_message.command != MessageKind::File {
             panic!("Received wrong message kind from client!");
         } else {
-            file_message.write_to(&self.tcpstream, file_path,&self.fsrw_mutex)?;
+            file_message.write_to(&self.tcpstream, file_path, &self.fsrw_mutex)?;
         };
         return Ok(self.success_message(None));
     }
@@ -237,6 +256,67 @@ impl <'a> ConnectionHandler <'a>{
     fn exit(&self) {
         println!("Connection shutdown");
         self.tcpstream.shutdown(std::net::Shutdown::Both);
+    }
+
+    fn get_display_path(&self, path: &PathBuf) -> String {
+        let home_folder_name = &self.home_directory.iter().last().unwrap();
+        let display_path: PathBuf = 
+            path
+            .clone()
+            .iter()
+            .skip_while(|s| **s != **home_folder_name)
+            .skip(1)
+            .collect();
+        let mut display_string = String::from(
+            display_path
+                .to_str()
+                .expect("Converting display path to string failed"),
+        );
+        if display_string.is_empty() {
+            display_string.push_str("~/");
+        } else {
+            display_string = "~/".to_owned() + &display_string + "/";
+        }
+        return display_string;
+    }
+
+    // Checks if new path is within the sandboxed folder
+    fn is_valid_directory(&self, path: &PathBuf) -> bool {
+        if path.exists() && path.is_dir() {
+            // JANK WAY TO CHECK: Merely checks if the home folder name is within the new path. Can obviously be bypassed if there are other folders with the same name as the home folder.
+            let simplified_path = path.canonicalize().unwrap();
+            println!("Checking valid dir: {:?}",&simplified_path);
+            let home_folder_name = &self.home_directory.iter().last().unwrap();
+            let path_from_current_directory: PathBuf = simplified_path
+                .clone()
+                .iter()
+                .skip_while(|s| **s != **home_folder_name)
+                .collect();
+            if !path_from_current_directory.as_os_str().is_empty() {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Checks if file is within the sandboxed folder
+    fn is_valid_file(&self, path: &PathBuf) -> bool {
+        if path.exists() && path.is_file() {
+            // JANK WAY TO CHECK: Merely checks if the home folder name is within the new path. Can obviously be bypassed if there are other folders with the same name as the home folder.
+            let simplified_path = path.canonicalize().unwrap();
+            println!("Checking valid file: {:?}",&simplified_path);
+            let home_folder_name = &self.home_directory.iter().last().unwrap();
+            let path_from_current_directory: PathBuf = simplified_path
+                .clone()
+                .iter()
+                .skip_while(|s| **s != **home_folder_name)
+                .collect();
+            println!("Got: {:?}", &path_from_current_directory.as_os_str());
+            if !path_from_current_directory.as_os_str().is_empty() {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
