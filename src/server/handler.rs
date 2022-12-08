@@ -239,3 +239,18 @@ impl <'a> ConnectionHandler <'a>{
         self.tcpstream.shutdown(std::net::Shutdown::Both);
     }
 }
+
+// experimental method for sending an error message after shutting down
+// TODO: maybe make this a shutdown message?
+impl ::std::ops::Drop for ConnectionHandler <'_> {
+    // TODO: make this send it to all clients
+    fn drop(&mut self) {
+        let error_message: MessageSender = self.error_message("The server has been dropped, and you are now disconnected.".to_string());
+        let final_msg_result = error_message.send_message(&self.tcpstream, &self.fsrw_mutex);
+        if let Err(e) = final_msg_result {
+            println!("{}", e);
+        }
+        println!("Connection shutdown");
+        self.tcpstream.shutdown(std::net::Shutdown::Both);
+    }
+}

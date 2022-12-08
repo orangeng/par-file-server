@@ -6,6 +6,7 @@ use std::{
     net::TcpStream,
 };
 
+use crate::errors::*;
 use crate::message::*;
 use crate::utilities::format_error;
 
@@ -18,10 +19,8 @@ pub struct Connection {
 impl Connection {
     // This function returns a Result. The Err(String) contains the string that will be
     // printed on the user interface
-    pub fn process_command(&mut self, tokens: &Vec<&str>) -> Result<(), String> {
+    pub fn process_command(&mut self, tokens: &Vec<&str>) -> Result<(), ClientError> {
         // Check if command is valid
-        let invalid: String =
-            "Command was invalid. Type 'help' for a list of commands.".to_string();
         let command_type: Command = match tokens[0] {
             "connect" => Command::Connect,
             "help" => Command::Help,
@@ -32,7 +31,7 @@ impl Connection {
             "up" => Command::Up,
             "down" => Command::Down,
             "status" => Command::Status,
-            _ => return Err(invalid),
+            _ => return Err(ClientError::InvalidCommand),
         };
 
         // "connect" command
@@ -58,7 +57,7 @@ impl Connection {
 
         // Check if stream is established
         if self.stream.is_none() {
-            return Err(ERR_NO_STREAM.to_string());
+            return Err(ClientError::ConnectionError);
         }
 
         match command_type {
@@ -66,24 +65,22 @@ impl Connection {
             Command::Ls => self.ls(&tokens)?,
             Command::Down => self.down(&tokens)?,
             Command::Up => self.up(&tokens)?,
-            _ => return Err("Not implemented".to_string()),
+            _ => return Err(ClientError::InvalidCommand),
         }
 
     
         return Ok(());
     }
 
-    fn connect(&mut self, tokens: &Vec<&str>) -> Result<TcpStream, String> {
+    fn connect(&mut self, tokens: &Vec<&str>) -> Result<TcpStream, ClientError> {
         // Some return strings
         let help: String =
             "Help:\n\tconnect [socket-addr]\n\t[socket-addr]: 'ip-addr:port' e.g. 127.0.0.1:12800"
                 .to_string();
-        let wrong_addr: String =
-            "There was an error connecting to the given socket address.".to_string();
 
         // Insufficient / wrong no of arguments
         if tokens.len() != 2 {
-            return Err(help);
+            return Err(ClientError::WrongArgumentNum(help));
         }
 
         // Validate socket address
@@ -91,7 +88,7 @@ impl Connection {
         let socket_addr_re = Regex::new(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}$").unwrap();
         let valid: bool = socket_addr_re.is_match(addr);
         if !valid {
-            return Err("Socket address is invalid.\n".to_string() + &help);
+            return Err(ClientError::InvalidAddress(help));
         }
 
         //let addr_split: Vec<&str> = addr.split(":").collect();
@@ -99,7 +96,7 @@ impl Connection {
 
         let stream_result: Result<TcpStream, Error> = TcpStream::connect(tokens[1]);
         if stream_result.is_err() {
-            return Err(wrong_addr);
+            return Err(ClientError::ConnectionError);
         }
 
         // If connection opened successfully
@@ -120,7 +117,7 @@ impl Connection {
         let confirmation_message: MessageReceiver = match MessageReceiver::new(&stream) {
             Ok(server_message) => server_message,
             Err(e) => {
-                return Err(e.to_string());
+                return Err(ClientError::IOError(e.to_string()));
             }
         };
 
@@ -132,23 +129,23 @@ impl Connection {
                 return Ok(stream);
             }
             _ => {
-                return Err(wrong_addr);
+                return Err(ClientError::MessageError);
             }
         };
     }
 
-    fn cd(&mut self, tokens: &Vec<&str>) -> Result<(), String> {
+    fn cd(&mut self, tokens: &Vec<&str>) -> Result<(), ClientError> {
         let help: String = "Help:\n\tcd [file path]".to_string();
 
         // currently only supports non-spaced file paths
         // TODO: support quotation file paths
         if tokens.len() != 2 {
-            return Err(help);
+            return Err(ClientError::WrongArgumentNum(help));
         }
         let tcp_stream: &TcpStream = match &self.stream {
             Some(tcp) => &tcp,
             None => {
-                return Err(ERR_NO_STREAM.to_string());
+                return Err(ClientError::ConnectionError);
             }
         };
 
@@ -156,15 +153,18 @@ impl Connection {
         let message_sender: MessageSender =
             MessageSender::new(MessageKind::Cd, tokens[1].to_string(), None);
         let ms_result: Result<(), Error> = message_sender.send_message(tcp_stream);
-        if ms_result.is_err() {
-            return Err(ERR_NON_SERVER.to_string());
+        match ms_result {
+            Err(e) => {
+                return Err(ClientError::IOError(e.to_string()));
+            }
+            _ => {}
         }
 
         // Read in request output from server
         let confirmation_message: MessageReceiver = match MessageReceiver::new(&tcp_stream) {
             Ok(server_message) => server_message,
-            Err(_) => {
-                return Err(ERR_NON_SERVER.to_string());
+            Err(e) => {
+                return Err(ClientError::IOError(e.to_string()));
             }
         };
 
@@ -177,24 +177,24 @@ impl Connection {
                 println!("{}", &confirmation_message.arguments);
                 return Ok(());
             }
-            _ => Err(ERR_SERVER.to_string()),
+            _ => Err(ClientError::MessageError),
         }
     }
 
-    fn ls(&self, tokens: &Vec<&str>) -> Result<(), String> {
+    fn ls(&self, tokens: &Vec<&str>) -> Result<(), ClientError> {
         // Some return strings
         let help: String = "Help:\n\tls".to_string();
 
         // Insufficient / wrong no of arguments
         if tokens.len() != 1 {
-            return Err(help);
+            return Err(ClientError::WrongArgumentNum(help));
         }
 
         // Borrow the TcpStream
         let tcp_stream: &TcpStream = match &self.stream {
             Some(tcp) => &tcp,
             None => {
-                return Err(ERR_NO_STREAM.to_string());
+                return Err(ClientError::ConnectionError);
             }
         };
 
@@ -202,15 +202,18 @@ impl Connection {
         let message_sender: MessageSender =
             MessageSender::new(MessageKind::Ls, "".to_string(), None);
         let ms_result: Result<(), Error> = message_sender.send_message(&tcp_stream);
-        if ms_result.is_err() {
-            return Err(ERR_NON_SERVER.to_string());
+        match ms_result {
+            Err(e) => {
+                return Err(ClientError::IOError(e.to_string()));
+            }
+            _ => {}
         }
 
         // Read in request output from server
         let confirmation_message: MessageReceiver = match MessageReceiver::new(&tcp_stream) {
             Ok(server_message) => server_message,
-            Err(_) => {
-                return Err(ERR_NON_SERVER.to_string());
+            Err(e) => {
+                return Err(ClientError::IOError(e.to_string()));
             }
         };
 
@@ -223,11 +226,11 @@ impl Connection {
                 println!("{}", &confirmation_message.arguments);
                 return Ok(());
             }
-            _ => Err(ERR_SERVER.to_string()),
+            _ => Err(ClientError::MessageError),
         }
     }
 
-    fn down(&self, tokens: &Vec<&str>) -> Result<(), String> {
+    fn down(&self, tokens: &Vec<&str>) -> Result<(), ClientError> {
         let help: String = "Help:
     \tdown [server-file] [local-dest]
     \t[server-file]: 'quicksort.pdf'
@@ -237,12 +240,12 @@ impl Connection {
         // currently only supports non-spaced file paths
         // TODO: support quotation file paths
         if tokens.len() != 3 {
-            return Err(help);
+            return Err(ClientError::WrongArgumentNum(help));
         }
         let tcp_stream: &TcpStream = match &self.stream {
             Some(tcp) => &tcp,
             None => {
-                return Err(ERR_NO_STREAM.to_string());
+                return Err(ClientError::ConnectionError);
             }
         };
 
@@ -250,33 +253,36 @@ impl Connection {
         let message_sender: MessageSender =
             MessageSender::new(MessageKind::Down, tokens[1].to_string(), None);
         let ms_result: Result<(), Error> = message_sender.send_message(&tcp_stream);
-        if ms_result.is_err() {
-            return Err(ERR_NON_SERVER.to_string());
+        match ms_result {
+            Err(e) => {
+                return Err(ClientError::IOError(e.to_string()));
+            }
+            _ => {}
         }
 
         // Receives incoming payload
         let payload_message: MessageReceiver = match MessageReceiver::new(tcp_stream) {
             Ok(server_message) => server_message,
             Err(e) => {
-                return Err(e.to_string());
+                return Err(ClientError::IOError(e.to_string()));
             }
         };
 
         // Double check to see message is of MessageKind::File
         match payload_message.command {
-            MessageKind::Error => return Err(payload_message.arguments),
+            MessageKind::Error => return Err(ClientError::DownloadError(payload_message.arguments)),
             MessageKind::File => (),
-            _ => return Err(ERR_SERVER.to_string()),
+            _ => return Err(ClientError::MessageError),
         };
 
         // Start writing to local destination
         match payload_message.write_to(tcp_stream, PathBuf::from(tokens[2])) {
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(ClientError::WriteError(e.to_string())),
             Ok(()) => Ok(()),
         }
     }
 
-    fn up(&self, tokens: &Vec<&str>) -> Result<(), String> {
+    fn up(&self, tokens: &Vec<&str>) -> Result<(), ClientError> {
         let help: String = "Help:
     \tup [local-file] [server-file]
     \t[local-file]: 'quicksort.pdf'
@@ -286,50 +292,53 @@ impl Connection {
         let tcp_stream: &TcpStream = match &self.stream {
             Some(tcp) => &tcp,
             None => {
-                return Err(ERR_NO_STREAM.to_string());
+                return Err(ClientError::ConnectionError);
             }
         };
         if tokens.len() != 3 {
-            return Err(help);
+            return Err(ClientError::WrongArgumentNum(help));
         }
 
         let mut file_path: PathBuf = PathBuf::from(tokens[1]);
         if !file_path.exists() {
-            return Err(format_error(ERR_NO_PATH, file_path.to_str().unwrap()));
+            return Err(ClientError::FileError(file_path.to_str().unwrap().to_string()));
         }
         // Sends down request
         let message_sender: MessageSender =
             MessageSender::new(MessageKind::Up, tokens[2].to_string(), None);
         let ms_result: Result<(), Error> = message_sender.send_message(&tcp_stream);
-        if ms_result.is_err() {
-            return Err(ERR_NON_SERVER.to_string());
+        match ms_result {
+            Err(e) => {
+                return Err(ClientError::IOError(e.to_string()));
+            }
+            _ => {}
         }
         // Receives incoming server message
         let server_message: MessageReceiver = match MessageReceiver::new(tcp_stream) {
             Ok(server_message) => server_message,
             Err(e) => {
-                return Err(e.to_string());
+                return Err(ClientError::IOError(e.to_string()));
             }
         };
         // Double check to see message is of MessageKind::Success
         match server_message.command {
-            MessageKind::Error => return Err(server_message.arguments),
+            MessageKind::Error => return Err(ClientError::UploadError(server_message.arguments)),
             MessageKind::Success => (),
-            _ => return Err(ERR_SERVER.to_string()),
+            _ => return Err(ClientError::MessageError),
         };
 
         //  Sending the file
         let file_message = MessageSender::new(MessageKind::File, "".to_string(), Some(file_path));
         match file_message.send_message(&tcp_stream) {
             Ok(_) => {},
-            Err(e) => return Err(ERR_NON_SERVER.to_string()),
+            Err(e) => return Err(ClientError::IOError(e.to_string())),
         }
 
         // Check confirmation message
         let confirmation_message: MessageReceiver = match MessageReceiver::new(&tcp_stream) {
             Ok(server_message) => server_message,
-            Err(_) => {
-                return Err(ERR_NON_SERVER.to_string());
+            Err(e) => {
+                return Err(ClientError::IOError(e.to_string()));
             }
         };
 
@@ -341,7 +350,7 @@ impl Connection {
                 println!("{}", &confirmation_message.arguments);
                 return Ok(());
             }
-            _ => Err(ERR_SERVER.to_string()),
+            _ => Err(ClientError::MessageError),
         }
     }
 
@@ -359,7 +368,7 @@ impl Connection {
 
     fn status(&self) {
         if self.stream.is_none() {
-            println!("{}", ERR_NO_STREAM);
+            println!("{}", ClientError::ConnectionError.to_string());
             return;
         }
         println!("Connected to server at {}.", self.addr);

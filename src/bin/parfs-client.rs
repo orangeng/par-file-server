@@ -1,6 +1,6 @@
 extern crate parfs;
 use std::{io::{self, Write}, process::exit, env};
-use parfs::client::connection::Connection;
+use parfs::{client::connection::Connection, errors::ClientError};
 
 fn main() {
   let args: Vec<String> = env::args().collect();
@@ -26,7 +26,7 @@ fn main() {
   
   while !quit {
     // Print out prompt
-    println!("");
+    // println!("");
     if conn.cwd.is_empty() {
       print!("parfs-client>");
     }
@@ -61,9 +61,9 @@ fn main() {
     }
 
     // Process the command
-    let result: Result<(), String> = conn.process_command(&tokens);
+    let result: Result<(), ClientError> = conn.process_command(&tokens);
     if let Err(err) = result {
-      println!("{}", err);
+      println!("{}", err.to_string());
       continue;
     }
 

@@ -1,11 +1,5 @@
 use std::slice::Iter;
 
-pub const ERR_NO_STREAM: &str =
-    "Connection has not been established yet. Type 'help' for a list of commands.";
-pub const ERR_NON_SERVER: &str = "There was an error processing the command. Please try again!";
-pub const ERR_SERVER: &str = "Server did not process command. Is it valid?";
-pub const ERR_NO_PATH: &str = "{} does not exist.";
-
 #[derive(Debug)]
 pub enum Command {
     Connect,
