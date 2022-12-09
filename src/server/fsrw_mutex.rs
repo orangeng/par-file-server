@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::sync::{Arc, RwLock, Mutex, MutexGuard};
 use std::path::PathBuf;
 use std::fs::File;

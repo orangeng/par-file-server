@@ -1,12 +1,7 @@
-use std::{
-    any::Any,
-    fs,
-    io::{self},
-    io::{BufReader, BufWriter, Error, ErrorKind},
-    net::TcpStream,
-    path::{Path, PathBuf},
-    sync::mpsc::Receiver,
-};
+use std::fs;
+use std::io::{self, Error, ErrorKind, Write};
+use std::path::{Path, PathBuf};
+use std::net::{TcpListener, TcpStream};
 
 use crate::message::MessageKind;
 use crate::server::message::receiver::MessageReceiver;
@@ -14,7 +9,7 @@ use crate::server::message::sender::MessageSender;
 use crate::server::utilities::*;
 use crate::utilities::format_error;
 
-use super::fsrw_mutex::{self, FsrwMutex};
+use super::fsrw_mutex::FsrwMutex;
 
 pub struct ConnectionHandler<'a> {
     tcpstream: TcpStream,
@@ -22,6 +17,7 @@ pub struct ConnectionHandler<'a> {
     current_directory: PathBuf,
     connection_dropped: bool,
     fsrw_mutex: &'a FsrwMutex,
+    addr: String,
 }
 
 // To do:: Have a proper way to indicate when the connection is dropped
@@ -32,6 +28,7 @@ impl<'a> ConnectionHandler<'a> {
         stream: TcpStream,
         home_directory: PathBuf,
         fsrw_mutex: &'a FsrwMutex,
+        addr: String
     ) -> io::Result<Self> {
         println!("New connection started");
         let handler = Self {
@@ -40,21 +37,40 @@ impl<'a> ConnectionHandler<'a> {
             current_directory: home_directory,
             connection_dropped: false,
             fsrw_mutex,
+            addr
         };
-        let welcome_message =
-            MessageSender::new(MessageKind::Success, handler.get_display_path(&handler.current_directory), None);
-        let final_msg_result =
-            welcome_message.send_message(&handler.tcpstream, &handler.fsrw_mutex);
-
-        if let Err(e) = final_msg_result {
-            println!("{}", e);
-        }
 
         return Ok(handler);
     }
 
     // main loop of the handler
-    pub fn handle_connection(mut self) {
+    pub fn handle_connection(mut self, port: usize) {
+        
+        // Shift request to new port
+        println!("Request now being shifted to port {}", port);
+        let bytes: [u8; 4] = (port as i32).to_le_bytes();
+        self.tcpstream.write(&bytes);
+
+        // Listen and capture incoming connection on new port
+        let addr_split: Vec<&str> = self.addr.split(":").collect();
+        let ip_addr = addr_split[0];
+        let new_addr: &str = &(ip_addr.to_string() + ":" + port.to_string().as_str());
+        println!("New address to connect to: {}", new_addr);
+        let listener: TcpListener = TcpListener::bind(new_addr).unwrap();
+
+        for stream in listener.incoming() {
+            self.tcpstream = stream.unwrap();
+        }
+        
+        let welcome_message =
+            MessageSender::new(MessageKind::Success, self.get_display_path(&self.current_directory), None);
+        let final_msg_result =
+            welcome_message.send_message(&self.tcpstream, &self.fsrw_mutex);
+
+        if let Err(e) = final_msg_result {
+            println!("{}", e);
+        }
+
         loop {
             println!("New iteration of handle_connection()...");
 

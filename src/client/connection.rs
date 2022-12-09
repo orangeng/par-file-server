@@ -1,14 +1,11 @@
 use crate::client::utilities::*;
 use regex::Regex;
-use std::{io::Error, path::PathBuf};
-use std::{
-    io::{BufReader, BufWriter},
-    net::TcpStream,
-};
+use std::io::{Error, Read};
+use std::path::PathBuf;
+use std::net::TcpStream;
 
 use crate::errors::*;
 use crate::message::*;
-use crate::utilities::format_error;
 
 pub struct Connection {
     pub stream: Option<TcpStream>,
@@ -36,9 +33,7 @@ impl Connection {
 
         // "connect" command
         if let Command::Connect = command_type {
-            let stream_result: TcpStream = self.connect(tokens)?;
-            self.stream = Some(stream_result);
-            self.addr = tokens[1].to_string();
+            self.connect(&tokens)?;
             return Ok(());
         }
 
@@ -72,7 +67,7 @@ impl Connection {
         return Ok(());
     }
 
-    fn connect(&mut self, tokens: &Vec<&str>) -> Result<TcpStream, ClientError> {
+    fn connect(&mut self, tokens: &Vec<&str>) -> Result<(), ClientError> {
         // Some return strings
         let help: String =
             "Help:\n\tconnect [socket-addr]\n\t[socket-addr]: 'ip-addr:port' e.g. 127.0.0.1:12800"
@@ -91,27 +86,32 @@ impl Connection {
             return Err(ClientError::InvalidAddress(help));
         }
 
-        //let addr_split: Vec<&str> = addr.split(":").collect();
-        //let ip_addr = addr_split[0];
-
         let stream_result: Result<TcpStream, Error> = TcpStream::connect(tokens[1]);
         if stream_result.is_err() {
             return Err(ClientError::ConnectionError);
         }
 
         // If connection opened successfully
-        let stream: TcpStream = stream_result.unwrap();
+        let mut stream: TcpStream = stream_result.unwrap();
 
-        // Code commented out, is for use when server demands a connection on a new port
-        /* let mut buf: [u8; 4]= [0; 4];
+        // Receives port number for when server demands a connection on a new port
+        let mut buf: [u8; 4]= [0; 4];
         let port_read_result = stream.read(&mut buf);
         if port_read_result.is_err(){
-          return Err(wrong_addr);
+          return Err(ClientError::ConnectionError);
         }
-
+        let addr_split: Vec<&str> = addr.split(":").collect();
+        let ip_addr = addr_split[0];
         let new_port: i32 = i32::from_le_bytes(buf);
         let new_addr: &str = &(ip_addr.to_string() + ":" + new_port.to_string().as_str());
-        println!("New address to connect to: {}", new_addr); */
+        println!("New address to connect to: {}", new_addr);
+
+        // Connect to the new port
+        let stream_result: Result<TcpStream, Error> = TcpStream::connect(new_addr);
+        if stream_result.is_err() {
+            return Err(ClientError::ConnectionError);
+        }
+        let stream: TcpStream = stream_result.unwrap();
 
         // Receives welcome message from server
         let confirmation_message: MessageReceiver = match MessageReceiver::new(&stream) {
@@ -125,8 +125,10 @@ impl Connection {
         match confirmation_message.command {
             MessageKind::Success => {
                 self.cwd = confirmation_message.arguments;
+                self.stream = Some(stream);
+                self.addr = new_addr.to_string();
                 println!("Welcome to parfs!");
-                return Ok(stream);
+                return Ok(());
             }
             _ => {
                 return Err(ClientError::MessageError);

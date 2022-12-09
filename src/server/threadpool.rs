@@ -1,26 +1,11 @@
 use std::sync::{Arc, Mutex, mpsc::{self, Sender, Receiver}};
 use std::thread::{self, JoinHandle};
 
-trait FnBox {
-  fn call_box(self: Box<Self>, port: usize);
-}
-
-impl<F: FnOnce()> FnBox for F {
-  fn call_box(self: Box<F>, port: usize) {
-    (*self)(port)
-  }
-}
-
-type Job = Box<dyn FnBox + Send + 'static>;
-
-enum Instruction{
-  Task(Job),
-  Terminate,
-}
+type Job = Box<dyn FnOnce(usize) + Send + 'static>;
 
 pub struct ThreadPool{
   workers: Vec<Worker>,
-  tx: Sender<Instruction>
+  tx: Option<Sender<Job>>,
 }
 
 impl ThreadPool {
@@ -31,7 +16,7 @@ impl ThreadPool {
     let (tx, rx) = mpsc::channel();
 
     // Only one instance of rx, will be shared between threads
-    let rx :Arc<Mutex<Receiver<Instruction>>> = Arc::new(Mutex::new(rx));
+    let rx :Arc<Mutex<Receiver<Job>>> = Arc::new(Mutex::new(rx));
 
     // Initialise worker threads
     let mut workers: Vec<Worker> = Vec::with_capacity(ports.len());
@@ -42,17 +27,17 @@ impl ThreadPool {
 
     ThreadPool{
       workers,
-      tx,
+      tx: Some(tx),
     }
   }
    
   // Adds given closure to queue, available workers will execute it
   pub fn execute<F>(&self, f: F) 
   where 
-    F: FnOnce() + Send + 'static
+    F: FnOnce(usize) -> () + Send + 'static
   {
-    let job = Box::new(f);
-    self.tx.send(Instruction::Task(job)).unwrap();
+    let job: Job = Box::new(f);
+    self.tx.as_ref().unwrap().send(job).unwrap();
   }
 
 }
@@ -60,10 +45,7 @@ impl ThreadPool {
 impl Drop for ThreadPool{
   fn drop(&mut self){
 
-    // Send one terminate for each existing worker
-    for _ in &mut self.workers {
-      self.tx.send(Instruction::Terminate).unwrap();
-    }
+    drop(self.tx.take());
 
     for worker in &mut self.workers{
       println!("Shutting down worker with port {}...", worker.port);
@@ -81,25 +63,23 @@ struct Worker{
 }
 
 impl Worker{
-  fn new(port: usize, rx: Arc<Mutex<mpsc::Receiver<Instruction>>>) -> Worker {
+  fn new(port: usize, rx: Arc<Mutex<Receiver<Job>>>) -> Worker {
 
-    let handle: JoinHandle<()> = thread::spawn(move || {
-      // Loop waiting for task till Terminate signal comes in
-      loop{
-        let instruction: Instruction = rx.lock().unwrap().recv().unwrap();
+    // Loop waiting for task till Terminate signal comes in
+    let handle: JoinHandle<()> = thread::spawn(move || loop {
+        let job_result = rx.lock().unwrap().recv();
 
-        match instruction{
-          Instruction::Task(job) => {
+        match job_result{
+          Ok(job) => {
             println!("Worker for port {} has received instructions.", port);
-            job.call_box(port);
+            job(port);
           }
-          Instruction::Terminate => {
+          Err(_) => {
             println!("Worker {} is terminating. Initiating self-destruct sequence...", port);
             break;
           }
         }
-      }
-    });
+      });
 
     Worker {
       port, 
