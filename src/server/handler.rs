@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{self, Error, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
 
 use crate::message::MessageKind;
 use crate::server::message::receiver::MessageReceiver;
@@ -11,23 +12,23 @@ use crate::utilities::format_error;
 
 use super::fsrw_mutex::FsrwMutex;
 
-pub struct ConnectionHandler<'a> {
+pub struct ConnectionHandler {
     tcpstream: TcpStream,
     home_directory: PathBuf,
     current_directory: PathBuf,
     connection_dropped: bool,
-    fsrw_mutex: &'a FsrwMutex,
+    fsrw_mutex: Arc<FsrwMutex>,
     addr: String,
 }
 
 // To do:: Have a proper way to indicate when the connection is dropped
 
-impl<'a> ConnectionHandler<'a> {
+impl ConnectionHandler {
     //make a new connectionhandler which encapsulates the connection from the server's side! wow!
     pub fn new(
         stream: TcpStream,
         home_directory: PathBuf,
-        fsrw_mutex: &'a FsrwMutex,
+        fsrw_mutex: Arc<FsrwMutex>,
         addr: String
     ) -> io::Result<Self> {
         println!("New connection started");
@@ -60,6 +61,7 @@ impl<'a> ConnectionHandler<'a> {
 
         for stream in listener.incoming() {
             self.tcpstream = stream.unwrap();
+            break;
         }
         
         let welcome_message =
@@ -338,7 +340,7 @@ impl<'a> ConnectionHandler<'a> {
 
 // experimental method for sending an error message after shutting down
 // TODO: maybe make this a shutdown message?
-impl ::std::ops::Drop for ConnectionHandler <'_> {
+impl ::std::ops::Drop for ConnectionHandler {
     // TODO: make this send it to all clients
     fn drop(&mut self) {
         let error_message: MessageSender = self.error_message("The server has been dropped, and you are now disconnected.".to_string());

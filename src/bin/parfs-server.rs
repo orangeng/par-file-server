@@ -27,7 +27,7 @@ fn main() {
   }
   
   // Initialize file system reader writer mutex
-  let fsrw_mutex = FsrwMutex::new();
+  let fsrw_mutex = Arc::new(FsrwMutex::new());
 
   // Creates a threadpool
   let ports: Vec<usize> = (first_free_port..(first_free_port + MAX_REQUEST_NO)).collect();
@@ -43,7 +43,7 @@ fn main() {
       ConnectionHandler::new(
         stream, 
         home_folder.clone(), 
-        &fsrw_mutex, 
+        fsrw_mutex.clone(), 
         addr_to_listen.to_string()
       ).unwrap();
 
