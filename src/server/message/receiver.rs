@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, BufWriter, ErrorKind};
+use std::io::{self, BufRead, BufReader};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;

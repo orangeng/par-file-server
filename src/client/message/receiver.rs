@@ -3,7 +3,6 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::num;
 use std::path::PathBuf;
 use std::str::from_utf8;
 
