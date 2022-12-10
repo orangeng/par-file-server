@@ -11,7 +11,8 @@ pub enum ClientError {
     DownloadError(String),
     WriteError(String),
     UploadError(String),
-    FileError(String)
+    FileError(String),
+    DestinationError(String),
 }
 
 impl fmt::Display for ClientError {
@@ -25,8 +26,9 @@ impl fmt::Display for ClientError {
             Self::MessageError => f.write_str("Error: No valid message was receieved from server."),
             Self::DownloadError(error) => f.write_str(&format!("Error: {}", error)),
             Self::WriteError(error) => f.write_str(&format!("Error: There was an issue the file to the local machine. \n {}", error)),
+            Self::DestinationError(error) => f.write_str(&format!("Invalid path: {}", error)),
             Self::UploadError(error) => f.write_str(&format!("Error: {}", error)),
-            Self::FileError(file) => f.write_str(&format!("The passed file {} does not exist", file))
+            Self::FileError(file) => f.write_str(&format!("Error: Cannot access {}: no such file", file))
         }
     }
 }

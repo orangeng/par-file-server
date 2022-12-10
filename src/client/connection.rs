@@ -311,6 +311,14 @@ impl Connection {
                 return Err(ClientError::ConnectionError);
             }
         };
+        //Check that download location is valid
+        let mut download_location = PathBuf::from(tokens[2]);
+        if download_location.is_dir() {
+            download_location = download_location.join(tokens[1]);
+        }
+        if (!download_location.exists() && !download_location.parent().unwrap().is_dir()) || download_location.is_dir(){
+            return Err(ClientError::DestinationError(tokens[2].to_string()));
+        }
 
         // Sends down request
         let message_sender: MessageSender =
@@ -341,7 +349,7 @@ impl Connection {
         };
 
         // Start writing to local destination
-        match payload_message.write_to(tcp_stream, PathBuf::from(tokens[2])) {
+        match payload_message.write_to(tcp_stream, PathBuf::from(download_location)) {
             Err(e) => return Err(ClientError::WriteError(e.to_string())),
             Ok(()) => Ok(()),
         }
@@ -365,7 +373,7 @@ impl Connection {
         }
 
         let mut file_path: PathBuf = PathBuf::from(tokens[1]);
-        if !file_path.exists() {
+        if !file_path.is_file() {
             return Err(ClientError::FileError(
                 file_path.to_str().unwrap().to_string(),
             ));
