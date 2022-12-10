@@ -1,7 +1,7 @@
 use crate::client::utilities::*;
 use regex::Regex;
 use std::io::{Error, Read};
-use std::net::{SocketAddr, TcpStream};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -372,7 +372,7 @@ impl Connection {
             return Err(ClientError::WrongArgumentNum(help));
         }
 
-        let mut file_path: PathBuf = PathBuf::from(tokens[1]);
+        let file_path: PathBuf = PathBuf::from(tokens[1]);
         if !file_path.is_file() {
             return Err(ClientError::FileError(
                 file_path.to_str().unwrap().to_string(),

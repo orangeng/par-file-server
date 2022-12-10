@@ -1,7 +1,6 @@
 use std::fs;
 use std::io::{self, Error, ErrorKind, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::thread;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

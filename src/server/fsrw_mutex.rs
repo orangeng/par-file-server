@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Mutex, MutexGuard};
-use std::path::{PathBuf, Path};
+use std::path::PathBuf;
 use std::fs::File;
 
 // FileLock keeps track of which threads 
