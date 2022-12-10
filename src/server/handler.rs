@@ -1,7 +1,8 @@
 use std::fs;
 use std::io::{self, Error, ErrorKind, Write};
-use std::path::{Path, PathBuf};
 use std::net::{TcpListener, TcpStream};
+use std::os::unix::thread;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::message::MessageKind;
@@ -19,6 +20,7 @@ pub struct ConnectionHandler {
     connection_dropped: bool,
     fsrw_mutex: Arc<FsrwMutex>,
     addr: String,
+    thread_id: usize,
 }
 
 // To do:: Have a proper way to indicate when the connection is dropped
@@ -29,16 +31,17 @@ impl ConnectionHandler {
         stream: TcpStream,
         home_directory: PathBuf,
         fsrw_mutex: Arc<FsrwMutex>,
-        addr: String
+        addr: String,
     ) -> io::Result<Self> {
-        println!("New connection started");
+        println!("Server: New connection started");
         let handler = Self {
             tcpstream: stream,
             home_directory: home_directory.clone(),
             current_directory: home_directory,
             connection_dropped: false,
             fsrw_mutex,
-            addr
+            addr,
+            thread_id: 0,
         };
 
         return Ok(handler);
@@ -46,9 +49,13 @@ impl ConnectionHandler {
 
     // main loop of the handler
     pub fn handle_connection(mut self, port: usize) {
-        
+        // Give thread the port as its id
+        self.thread_id = port;
         // Shift request to new port
-        println!("Request now being shifted to port {}", port);
+        println!(
+            "ID {}: Request now being shifted to port {}",
+            self.thread_id, port
+        );
         let bytes: [u8; 4] = (port as i32).to_le_bytes();
         self.tcpstream.write(&bytes);
 
@@ -56,25 +63,30 @@ impl ConnectionHandler {
         let addr_split: Vec<&str> = self.addr.split(":").collect();
         let ip_addr = addr_split[0];
         let new_addr: &str = &(ip_addr.to_string() + ":" + port.to_string().as_str());
-        println!("New address to connect to: {}", new_addr);
+        println!(
+            "ID {}: New address to connect to: {}",
+            self.thread_id, new_addr
+        );
         let listener: TcpListener = TcpListener::bind(new_addr).unwrap();
 
         for stream in listener.incoming() {
             self.tcpstream = stream.unwrap();
             break;
         }
-        
-        let welcome_message =
-            MessageSender::new(MessageKind::Success, self.get_display_path(&self.current_directory), None);
-        let final_msg_result =
-            welcome_message.send_message(&self.tcpstream, &self.fsrw_mutex);
+
+        let welcome_message = MessageSender::new(
+            MessageKind::Success,
+            self.get_display_path(&self.current_directory),
+            None,
+        );
+        let final_msg_result = welcome_message.send_message(&self.tcpstream, &self.fsrw_mutex);
 
         if let Err(e) = final_msg_result {
-            println!("{}", e);
+            println!("ID {}: {}", self.thread_id, e);
         }
 
         loop {
-            println!("New iteration of handle_connection()...");
+            println!("ID {}: Ready for next command", self.thread_id);
 
             // Creates a MessageReceiver and waits for incoming messages
             let client_request = self.receive_message();
@@ -85,9 +97,10 @@ impl ConnectionHandler {
             let client_request = client_request.unwrap();
 
             // Confirms received request
-            println!("Received request..");
-            println!("{:?}", &client_request.command);
-            println!("{}", &client_request.arguments);
+            println!(
+                "ID {}: Received request: {:?} {}",
+                self.thread_id, &client_request.command, &client_request.arguments
+            );
 
             // Group of match statements to process different commands
             // Validation of command is done within each command
@@ -115,16 +128,15 @@ impl ConnectionHandler {
                         self.exit();
                         return;
                     }
-                    println!("{}", e);
-                    let generic_server_err: String =
-                        "There was an error at the server. Please try again!".to_string();
+                    println!("ID {}: {}", self.thread_id, e);
+                    let generic_server_err: String = "Server error: please try again.".to_string();
                     let error_message: MessageSender = self.error_message(generic_server_err);
                     error_message.send_message(&self.tcpstream, &self.fsrw_mutex)
                 }
             };
 
             if let Err(e) = final_msg_result {
-                println!("{}", e);
+                println!("ID {}: {}", self.thread_id, e);
             }
         }
     }
@@ -139,8 +151,16 @@ impl ConnectionHandler {
 
         let file_path = PathBuf::from(&self.current_directory).join(new_dir);
         if self.is_valid_file(&file_path) {
-            return Ok(self.error_message(format_error(ERR_NO_DIR,&dir_name)))
-        }
+            return Ok(self.error_message(format_error(ERR_FILE_EXISTS, &dir_name)));
+        } else {
+            if !self.is_valid_directory(&file_path.parent().unwrap().to_path_buf()) {
+                let new_dir = Path::new(&dir_name);
+                return Ok(self.error_message(format_error(
+                    ERR_NO_DIR,
+                    new_dir.parent().unwrap().to_str().unwrap(),
+                )));
+            }
+        };
         fs::create_dir(file_path)?;
         return Ok(self.success_message(None));
     }
@@ -164,10 +184,7 @@ impl ConnectionHandler {
         }
         // Sends error message if file does not exists
         else {
-            return Ok(self.error_message(format_error(
-                ERR_NO_DIR,
-                &path_name,
-            )));
+            return Ok(self.error_message(format_error(ERR_NO_DIR, &path_name)));
         }
     }
 
@@ -196,7 +213,7 @@ impl ConnectionHandler {
     fn down(&self, file_name: String) -> io::Result<MessageSender> {
         let mut file_path: PathBuf = PathBuf::from(&self.current_directory);
         file_path.push(file_name.as_str());
-        println!("{}", file_path.to_str().unwrap());
+        println!("ID {}: {}", self.thread_id, file_path.to_str().unwrap());
         if self.is_valid_file(&file_path) {
             let file_sender: MessageSender =
                 MessageSender::new(MessageKind::File, "".to_string(), Some(file_path));
@@ -216,18 +233,15 @@ impl ConnectionHandler {
         // Check if file to be written to is a file. If not, check if the parent is a directory. If not, send an error message.
         if !self.is_valid_file(&file_path) {
             if file_path.parent().is_none() {
-                return Ok(
-                    self.error_message(format_error(ERR_NO_PATH,&file_name)) 
-                );
+                return Ok(self.error_message(format_error(ERR_NO_PATH, &file_name)));
             } else {
-                if !self.is_valid_directory(&PathBuf::from(file_path.parent().unwrap())){
-                    return Ok(
-                        self.error_message(format_error(ERR_NO_PATH, &file_name))
-                    );
+                if !self.is_valid_directory(&PathBuf::from(file_path.parent().unwrap())) {
+                    return Ok(self.error_message(format_error(ERR_NO_PATH, &file_name)));
                 }
             }
         }
-        println!("Ready to receive {:?}", file_path);
+
+        println!("ID {}: Ready to receive {:?}", self.thread_id, file_path);
         self.success_message(None)
             .send_message(&self.tcpstream, &self.fsrw_mutex)?;
         let file_message = match self.receive_message() {
@@ -272,14 +286,13 @@ impl ConnectionHandler {
     }
 
     fn exit(&self) {
-        println!("Connection shutdown");
+        println!("ID {}: Connection shutdown", self.thread_id);
         self.tcpstream.shutdown(std::net::Shutdown::Both);
     }
 
     fn get_display_path(&self, path: &PathBuf) -> String {
         let home_folder_name = &self.home_directory.iter().last().unwrap();
-        let display_path: PathBuf = 
-            path
+        let display_path: PathBuf = path
             .clone()
             .iter()
             .skip_while(|s| **s != **home_folder_name)
@@ -303,7 +316,7 @@ impl ConnectionHandler {
         if path.exists() && path.is_dir() {
             // JANK WAY TO CHECK: Merely checks if the home folder name is within the new path. Can obviously be bypassed if there are other folders with the same name as the home folder.
             let simplified_path = path.canonicalize().unwrap();
-            println!("Checking valid dir: {:?}",&simplified_path);
+            // println!("ID {}: Checking valid dir: {:?}",self.thread_id,&simplified_path);
             let home_folder_name = &self.home_directory.iter().last().unwrap();
             let path_from_current_directory: PathBuf = simplified_path
                 .clone()
@@ -322,14 +335,17 @@ impl ConnectionHandler {
         if path.exists() && path.is_file() {
             // JANK WAY TO CHECK: Merely checks if the home folder name is within the new path. Can obviously be bypassed if there are other folders with the same name as the home folder.
             let simplified_path = path.canonicalize().unwrap();
-            println!("Checking valid file: {:?}",&simplified_path);
+            // println!(
+            //     "ID {}: Checking valid file: {:?}",
+            //     self.thread_id, &simplified_path
+            // );
             let home_folder_name = &self.home_directory.iter().last().unwrap();
             let path_from_current_directory: PathBuf = simplified_path
                 .clone()
                 .iter()
                 .skip_while(|s| **s != **home_folder_name)
                 .collect();
-            println!("Got: {:?}", &path_from_current_directory.as_os_str());
+            // println!("ID {}: Got: {:?}",self.thread_id, &path_from_current_directory.as_os_str());
             if !path_from_current_directory.as_os_str().is_empty() {
                 return true;
             }
@@ -340,15 +356,15 @@ impl ConnectionHandler {
 
 // experimental method for sending an error message after shutting down
 // TODO: maybe make this a shutdown message?
-impl ::std::ops::Drop for ConnectionHandler {
-    // TODO: make this send it to all clients
-    fn drop(&mut self) {
-        let error_message: MessageSender = self.error_message("The server has been dropped, and you are now disconnected.".to_string());
-        let final_msg_result = error_message.send_message(&self.tcpstream, &self.fsrw_mutex);
-        if let Err(e) = final_msg_result {
-            println!("{}", e);
-        }
-        println!("Connection shutdown");
-        self.tcpstream.shutdown(std::net::Shutdown::Both);
-    }
-}
+// impl ::std::ops::Drop for ConnectionHandler {
+//     // TODO: make this send it to all clients
+//     fn drop(&mut self) {
+//         let error_message: MessageSender = self.error_message("You have been disconnected.".to_string());
+//         let final_msg_result = error_message.send_message(&self.tcpstream, &self.fsrw_mutex);
+//         if let Err(e) = final_msg_result {
+//             println!("ID {}: {}",self.thread_id, e);
+//         }
+//         println!("ID {}: Connection shutdown",self.thread_id);
+//         self.tcpstream.shutdown(std::net::Shutdown::Both);
+//     }
+// }

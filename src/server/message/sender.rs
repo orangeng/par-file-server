@@ -34,8 +34,6 @@ impl MessageSender {
     pub fn send_message(self, mut writer: &TcpStream, fsrw_mutex: &FsrwMutex) -> io::Result<()> {
         // println!("Sent message called once");
         // Generate message and send headers
-        let headers = self.generate_headers()?;
-        writer.write_all(&headers)?;
 
         // Send payload if any
         match &self.file_path {
@@ -52,7 +50,7 @@ impl MessageSender {
                 // file_dict is automatically unlocked when acquire_file_rwlock consumes it
 
                 // Lock rwlock as a reader
-                let file = match file_lock.read() {
+                let read_path = match file_lock.read() {
                     Ok(guard) => guard,
                     // Need to handle this properly
                     Err(poisoned) => {
@@ -61,7 +59,7 @@ impl MessageSender {
                 };
 
                 // Send here
-                let send_result = critical_region_send(file, writer);
+                let send_result = self.critical_region_send(read_path, writer);
                 // critical_region_send drops the rwlock to the file but we also need to release the atomic reference counter file_lock regardless of write result
                 drop(file_lock);
 
@@ -78,7 +76,10 @@ impl MessageSender {
 
                 return send_result;
             }
-            None => {}
+            None => {
+                let headers = self.generate_headers()?;
+                writer.write_all(&headers)?;
+            }
         }
         writer.flush()?;
         return Ok(());
@@ -105,19 +106,30 @@ impl MessageSender {
         headers.extend_from_slice(argument_bytes);
         Ok(headers)
     }
-}
+    // This code holds the critical region (where rwlock<File> is held) for write so failing here can be handled by the caller safely
+    fn critical_region_send(
+        &self,
+        read_path: RwLockReadGuard<PathBuf>,
+        mut writer: &TcpStream,
+    ) -> io::Result<()> {
+        println!("Read access obtained!");
 
-fn critical_region_send(file: RwLockReadGuard<File>, mut writer: &TcpStream) -> io::Result<()> {
-    let mut file_reader = BufReader::with_capacity(BUFFER_SIZE, &*file);
+        // Generate headers. Note that this is done after holding the read lock for the file as writing to the file will affect file size and the headers generated will be invalid.
+        let headers = self.generate_headers()?;
+        writer.write_all(&headers)?;
+        let mut file_reader = BufReader::with_capacity(BUFFER_SIZE, File::open(read_path.clone())?);
 
-    // Send file
-    let mut length = 1;
-    while length > 0 {
-        let buffer = file_reader.fill_buf()?;
-        // println!("File to be sent: {:?}",buffer);
-        length = buffer.len();
-        writer.write_all(&buffer)?;
-        file_reader.consume(length);
+        // Send file
+        let mut length = 1;
+        while length > 0 {
+            let buffer = file_reader.fill_buf()?;
+            // println!("File to be sent: {:?}",buffer);
+            length = buffer.len();
+            writer.write_all(&buffer)?;
+            file_reader.consume(length);
+        }
+        drop(read_path);
+        println!("Done reading");
+        return Ok(());
     }
-    return Ok(());
 }

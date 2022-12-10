@@ -59,6 +59,8 @@ impl MessageReceiver {
         file_path: PathBuf,
         fsrw_mutex: &FsrwMutex,
     ) -> io::Result<()> {
+
+
         // Acquire write access to the file
         // Lock file_dict
         let file_dict = match fsrw_mutex.file_dict.lock() {
@@ -72,7 +74,7 @@ impl MessageReceiver {
         // file_dict is automatically unlocked when acquire_file_rwlock consumes it
 
         // Lock rwlock as a writer
-        let mut writer = match file_lock.write() {
+        let write_path = match file_lock.write() {
             Ok(guard) => guard,
             // Need to handle this properly
             Err(poisoned) => {
@@ -81,7 +83,7 @@ impl MessageReceiver {
         };
 
         // Write here
-        let write_result = critical_region_write(self.payload_size, writer, &tcpstream);
+        let write_result = critical_region_write(self.payload_size, write_path, &tcpstream);
 
         // Critical_region_write drops the rwlock to the file but we also need to release the atomic reference counter file_lock regardless of write result
         drop(file_lock);
@@ -104,12 +106,14 @@ impl MessageReceiver {
 // This code holds the critical region (where rwlock<File> is held) for write so failing here can be handled by the caller safely
 fn critical_region_write(
     payload_size: u64,
-    mut writer: RwLockWriteGuard<File>,
+    write_path: RwLockWriteGuard<PathBuf>,
     tcpstream: &TcpStream,
 ) -> io::Result<()> {
+    println!("Exclusive write access obtained!");
     let mut byte_count: u64 = 0;
     let mut reader = BufReader::with_capacity(BUFFER_SIZE, tcpstream);
     let capacity = reader.capacity() as u64;
+    let mut writer = File::create(write_path.clone())?;
     while byte_count < payload_size {
         // println!("Waiting for payload..");
         if payload_size - byte_count < capacity {
@@ -130,7 +134,7 @@ fn critical_region_write(
         };
     }
     writer.flush()?;
-    // println!("Done writing");
-
+    println!("Done writing");
+    drop(write_path);
     return Ok(());
 }

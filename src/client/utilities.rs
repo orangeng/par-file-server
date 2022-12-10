@@ -36,7 +36,7 @@ impl Command {
                 "Downloads a file from the server to the local computer. Usage: (placeholder)"
                     .to_string()
             }
-            _ => "this should never show up".to_string(),
+            _ => "An error has occurred. Please contact your local system adminstrator.".to_string(),
         }
     }
 
@@ -49,7 +49,7 @@ impl Command {
             Command::Ls => "ls".to_string(),
             Command::Up => "up".to_string(),
             Command::Down => "down".to_string(),
-            _ => "this should never show up".to_string(),
+            _ => "An error has occurred. Please contact your local system adminstrator.".to_string(),
         }
     }
 
@@ -65,4 +65,8 @@ impl Command {
         ];
         COMMANDS.iter()
     }
+}
+pub fn print_progress(current:u64, total: u64) {
+    let percent = current as f64 / total as f64;
+    print!("\rProgress: {}B/{}B --- {:5.2}%     ",current,total,percent * 100 as f64);
 }

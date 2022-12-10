@@ -23,9 +23,9 @@ impl fmt::Display for ClientError {
             Self::WrongArgumentNum(help) => f.write_str(&format!("Error: Wrong number of arguments passed. \n {}", help)),
             Self::IOError(error) => f.write_str(&format!("Error: There was an error processing the command. Please try again! \n {}", error)),
             Self::MessageError => f.write_str("Error: No valid message was receieved from server."),
-            Self::DownloadError(error) => f.write_str(&format!("Error: The server returned an error when sending the file. \n {}", error)),
+            Self::DownloadError(error) => f.write_str(&format!("Error: {}", error)),
             Self::WriteError(error) => f.write_str(&format!("Error: There was an issue the file to the local machine. \n {}", error)),
-            Self::UploadError(error) => f.write_str(&format!("There was an issue uploading the file to the server. \n {}", error)),
+            Self::UploadError(error) => f.write_str(&format!("Error: {}", error)),
             Self::FileError(file) => f.write_str(&format!("The passed file {} does not exist", file))
         }
     }

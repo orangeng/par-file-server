@@ -1,6 +1,6 @@
 extern crate parfs;
 use std::{io::{self, Write}, process::exit, env};
-use parfs::{client::connection::Connection, errors::ClientError};
+use parfs::{client::connection::Connection, client::errors::ClientError};
 
 fn main() {
   let args: Vec<String> = env::args().collect();
