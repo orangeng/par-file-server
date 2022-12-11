@@ -10,7 +10,6 @@ use crate::server::fsrw_mutex::*;
 
 // DO NOT RELY ON MESSAGE SENDER TO VALIDATE FILEPATHS. ALL FILEPATHS ARE ASSUMED TO BE VALID.
 
-
 #[derive(Debug)]
 pub struct MessageSender {
     pub command: MessageKind,
